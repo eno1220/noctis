@@ -13,6 +13,35 @@ struct MemoryMap {
     desc_ver: u32,
 }
 
+impl MemoryMap {
+    fn iter(&self) -> MemoryMapIterator {
+        MemoryMapIterator {
+            map: self,
+            offset: 0,
+        }
+    }
+}
+
+struct MemoryMapIterator<'a> {
+    map: &'a MemoryMap,
+    offset: usize,
+}
+
+impl <'a> Iterator for MemoryMapIterator<'a> {
+    type Item = &'a MemoryDescriptor;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.offset >= self.map.map_size {
+            return None;
+        }
+        let desc = unsafe {
+            &*(self.map.buffer.add(self.offset) as *const MemoryDescriptor)
+        };
+        self.offset += self.map.desc_size;
+        Some(desc)
+    }
+}
+
 fn get_memory_map(bt: *const efi::BootServices) -> Result<MemoryMap, efi::Status> {
     let mut map_size = 0;
     let mut map_key = 0;
@@ -68,31 +97,25 @@ fn get_memory_map(bt: *const efi::BootServices) -> Result<MemoryMap, efi::Status
     })
 }
 
-fn print_memory_map(memory_map: &MemoryMap) {
-    let num_of_entries = memory_map.map_size / memory_map.desc_size;
-    for i in 0..num_of_entries {
-        let desc = unsafe {
-            let ptr = memory_map.buffer.add(i * memory_map.desc_size) as *const MemoryDescriptor;
-            &*ptr
-        };
-        println!(
-            "[{:#03}] start: {:#012x}, len: {:#06} KiB, type: {:?}",
-            i,
-            desc.physical_start,
-            desc.number_of_pages * 4,
-            desc.r#type
-        );
-    }
-}
-
 fn main() {
     //let st = uefi::env::system_table().as_ptr() as *const efi::SystemTable;
     let bt = uefi::env::boot_services().unwrap().as_ptr() as *const efi::BootServices;
 
     println!("Hello, world!");
 
-    let memory_map = get_memory_map(bt).unwrap();
-    print_memory_map(&memory_map);
+    let memory_map = match get_memory_map(bt) {
+        Ok(map) => map,
+        Err(status) => {
+            println!("Failed to get memory map: {:?}", status);
+            return;
+        }
+    };
+    for desc in memory_map.iter() {
+        println!(
+            "Physical Start: {:#018x}, Number of Pages: {:#07x}, Type: {:?}",
+            desc.physical_start, desc.number_of_pages, desc.r#type
+        );
+    }
 
     loop {
         unsafe { asm!("hlt") };
