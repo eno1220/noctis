@@ -1,6 +1,6 @@
 use alloc::boxed::Box;
 use bitfield_struct::bitfield;
-use core::arch::{asm, naked_asm};
+use core::arch::asm;
 use core::mem::size_of;
 use core::pin::Pin;
 
@@ -51,7 +51,7 @@ impl GdtSegemntDescriptor {
             .with_rw(rw)
             .with_dc(dc)
             .with_executable(executable)
-            .with_descriptor_type(0b0) // code or data segment
+            .with_descriptor_type(0b01) // code or data segment
             .with_dpl(dpl & 0b11)
             .with_present(true)
             .with_limit_high(((limit >> 16) & 0xff) as u8)
@@ -94,8 +94,8 @@ impl Tss64 {
     pub fn new() -> Self {
         let rsp0 = unsafe { Self::allocate_tss_memory() };
         let mut ist = [0u64; 7];
-        for i in 0..7 {
-            ist[i] = unsafe { Self::allocate_tss_memory() };
+        for i in ist.iter_mut() {
+            *i = unsafe { Self::allocate_tss_memory() };
         }
         let tss64 = Tss64Inner {
             _reserved0: 0,
@@ -106,10 +106,10 @@ impl Tss64 {
             _io_map_base: 0,
             _reserved3: 0,
         };
-        let this = Self {
+
+        Self {
             inner: Box::pin(tss64),
-        };
-        this
+        }
     }
 }
 
@@ -125,7 +125,7 @@ struct TssDescriptor {
     #[bits(24)]
     base_low: u32,
     #[bits(4)]
-    type_: u8,
+    r#type: u8,
     #[bits(1)]
     desc_type: u8,
     #[bits(2)]
@@ -152,7 +152,7 @@ impl TssDescriptor {
         Self::default()
             .with_limit_low((size_of::<Tss64Inner>() & 0xffff) as u16)
             .with_base_low((base & 0xffffff) as u32)
-            .with_type_(0b1001) // TSS
+            .with_type(0b1001) // TSS
             .with_desc_type(0b00) // system segment
             .with_dpl(0b00) // kernel
             .with_present(true)
@@ -161,7 +161,7 @@ impl TssDescriptor {
             .with_long(true)
             .with_db(0)
             .with_granularity(0b01) // 4K granularity
-            .with_base_high((base >> 24) as u64)
+            .with_base_high(base >> 24)
     }
 }
 
@@ -180,7 +180,7 @@ struct Gdt {
 const _: () = assert!(size_of::<Gdt>() == 40);
 
 #[allow(dead_code)]
-struct GdtWrapper {
+pub struct GdtWrapper {
     inner: Pin<Box<Gdt>>,
     tss64: Tss64,
 }
@@ -201,12 +201,10 @@ impl GdtWrapper {
             asm!(
                 "lgdt [{}]",
                 in(reg) &gdt_register,
-                options(nostack, nomem, preserves_flags),
             );
             asm!(
                 "ltr {0:x}",
                 in(reg) TSS64_SEGMENT_SELECTOR,
-                options(nostack, nomem, preserves_flags),
             );
         }
     }
@@ -218,22 +216,12 @@ impl Default for GdtWrapper {
         let gdt = Gdt {
             null_segment: GdtSegemntDescriptor::null(),
             kernel_code_segment: GdtSegemntDescriptor::create(
-                true,
-                false,
-                true,
-                0,
-                0xfffff, // 2^20 - 1
-                0,
-                0b1,
+                true, false, true, 0, 0xfffff, // 2^20 - 1
+                0, 0b1,
             ),
             kernel_data_segment: GdtSegemntDescriptor::create(
-                true,
-                false,
-                false,
-                0,
-                0xfffff, // 2^20 - 1
-                0,
-                0b1,
+                true, false, false, 0, 0xfffff, // 2^20 - 1
+                0, 0b1,
             ),
             tss_segment: TssDescriptor::create(tss64.phys_addr()),
         };
@@ -242,39 +230,39 @@ impl Default for GdtWrapper {
     }
 }
 
-// ref https://github.com/rust-lang/rust/pull/134213
-#[unsafe(naked)]
-unsafe fn load_kernel_data_segment() {
-    naked_asm!(
-        "mov di, {}",
-        "mov ds, di",
-        "mov es, di",
-        "mov fs, di",
-        "mov gs, di",
-        "mov ss, di",
-        const KERNEL_DATA_SEGMENT,
-    );
+fn load_kernel_data_segment() {
+    unsafe {
+        asm!(
+            "mov di, {:x}",
+            "mov ds, di",
+            "mov es, di",
+            "mov fs, di",
+            "mov gs, di",
+            "mov ss, di",
+            in(reg) KERNEL_DATA_SEGMENT,
+        );
+    }
 }
 
 // csレジスタのみlfar-jumpする必要がある
-#[unsafe(naked)]
-unsafe fn load_kernel_code_segment() {
-    naked_asm!(
-        "lea rax, [rip + 2f]",
-        "push {}",
-        "push rax",
-        "ljmp [rsp]",
-        "2:",
-        "add rsp, 8 + 2",
-        const KERNEL_CODE_SEGMENT,
-    );
+fn load_kernel_code_segment() {
+    unsafe {
+        asm!(
+            "lea rax, [rip + 2f]",
+            "push cx",
+            "push rax",
+            "ljmp [rsp]",
+            "2:",
+            "add rsp, 8 + 2",
+            in("cx") KERNEL_CODE_SEGMENT,
+        )
+    }
 }
 
-pub fn init_exceptions() {
+pub fn init_gdt() -> GdtWrapper {
     let gdt = GdtWrapper::default();
     gdt.load();
-    unsafe {
-        load_kernel_code_segment();
-        load_kernel_data_segment();
-    }
+    load_kernel_data_segment();
+    load_kernel_code_segment();
+    gdt
 }
