@@ -165,7 +165,7 @@ fn allocate_kernel_stack() -> *mut u64 {
         ((*bt).allocate_pages)(
             system::ALLOCATE_ANY_PAGES,
             efi::LOADER_DATA,
-            4,
+            (KERNEL_STACK_SIZE / 0x1000) as usize,
             &mut stack_base as *mut u64,
         )
     })
