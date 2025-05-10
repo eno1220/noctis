@@ -10,6 +10,8 @@ use std::{
     os::uefi::{self, ffi::OsStrExt},
 };
 
+const KERNEL_STACK_SIZE: usize = 0x4000;
+
 fn open_root_dir() -> *mut efi::protocols::file::Protocol {
     let bt = uefi::env::boot_services().unwrap().as_ptr() as *const efi::BootServices;
 
@@ -155,6 +157,29 @@ fn get_kernel_size(file: &elf::ElfBytes<AnyEndian>) -> (u64, u64) {
     (min_addr, max_addr)
 }
 
+fn allocate_kernel_stack() -> *mut u64 {
+    let bt = uefi::env::boot_services().unwrap().as_ptr() as *const efi::BootServices;
+    let mut stack_base: u64 = 0;
+    
+    status_to_result(unsafe {
+        ((*bt).allocate_pages)(
+            system::ALLOCATE_ANY_PAGES,
+            efi::LOADER_DATA,
+            4,
+            &mut stack_base as *mut u64,
+        )
+    })
+    .expect("Failed to allocate kernel stack");
+
+    unsafe {
+        core::ptr::write_bytes(stack_base as *mut u8, 0, KERNEL_STACK_SIZE);
+    }
+    let stack_base = (stack_base + KERNEL_STACK_SIZE as u64) as *mut u64;
+    println!("Kernel Stack Base: {:#018x}", stack_base as u64);
+    
+    stack_base
+}
+
 pub fn status_to_result(status: efi::Status) -> Result<(), efi::Status> {
     match status {
         efi::Status::SUCCESS => Ok(()),
@@ -183,6 +208,8 @@ fn main() {
     kernel_file_size = read_kernel_file(kernel_file, kernel_file_size + 1024, &mut kernel_ref);
     let kernel_entry = load_to_memory(kernel_ref, kernel_file_size);
 
+    let stack_base = allocate_kernel_stack();
+
     let memory_map = memory::MemoryMap::new();
 
     status_to_result(unsafe {
@@ -191,8 +218,10 @@ fn main() {
     .expect("Failed to exit boot services");
 
     unsafe {
-        let kernel_entry: extern "sysv64" fn() -> ! = core::mem::transmute(kernel_entry);
-        kernel_entry();
+        let kernel_entry: extern "sysv64" fn(
+            stack_base: u64,
+        ) -> ! = core::mem::transmute(kernel_entry);
+        kernel_entry(stack_base as u64);
     }
 
     #[allow(unreachable_code)]
