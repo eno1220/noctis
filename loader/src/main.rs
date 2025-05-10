@@ -10,7 +10,8 @@ use std::{
     os::uefi::{self, ffi::OsStrExt},
 };
 
-const KERNEL_STACK_SIZE: usize = 0x4000;
+const KERNEL_STACK_SIZE: u64 = 0x4000;
+const KERNEL_HEAP_SIZE: u64 = 0x1000000;
 
 fn open_root_dir() -> *mut efi::protocols::file::Protocol {
     let bt = uefi::env::boot_services().unwrap().as_ptr() as *const efi::BootServices;
@@ -157,27 +158,21 @@ fn get_kernel_size(file: &elf::ElfBytes<AnyEndian>) -> (u64, u64) {
     (min_addr, max_addr)
 }
 
-fn allocate_kernel_stack() -> *mut u64 {
+fn allocate_memory(size: u64) -> u64 {
     let bt = uefi::env::boot_services().unwrap().as_ptr() as *const efi::BootServices;
-    let mut stack_base: u64 = 0;
-    
+    let mut addr: u64 = 0;
+
     status_to_result(unsafe {
         ((*bt).allocate_pages)(
             system::ALLOCATE_ANY_PAGES,
             efi::LOADER_DATA,
-            (KERNEL_STACK_SIZE / 0x1000) as usize,
-            &mut stack_base as *mut u64,
+            ((size + 0xFFF) / 0x1000) as usize,
+            &mut addr as *mut u64,
         )
     })
-    .expect("Failed to allocate kernel stack");
+    .expect("Failed to allocate memory");
 
-    unsafe {
-        core::ptr::write_bytes(stack_base as *mut u8, 0, KERNEL_STACK_SIZE);
-    }
-    let stack_base = (stack_base + KERNEL_STACK_SIZE as u64) as *mut u64;
-    println!("Kernel Stack Base: {:#018x}", stack_base as u64);
-    
-    stack_base
+    addr
 }
 
 pub fn status_to_result(status: efi::Status) -> Result<(), efi::Status> {
@@ -208,7 +203,9 @@ fn main() {
     kernel_file_size = read_kernel_file(kernel_file, kernel_file_size + 1024, &mut kernel_ref);
     let kernel_entry = load_to_memory(kernel_ref, kernel_file_size);
 
-    let stack_base = allocate_kernel_stack();
+    let stack_base = allocate_memory(KERNEL_STACK_SIZE) + KERNEL_STACK_SIZE;
+    let heap_base = allocate_memory(KERNEL_HEAP_SIZE);
+    let heap_size: u64 = KERNEL_HEAP_SIZE;
 
     let memory_map = memory::MemoryMap::new();
 
@@ -218,10 +215,9 @@ fn main() {
     .expect("Failed to exit boot services");
 
     unsafe {
-        let kernel_entry: extern "sysv64" fn(
-            stack_base: u64,
-        ) -> ! = core::mem::transmute(kernel_entry);
-        kernel_entry(stack_base as u64);
+        let kernel_entry: extern "sysv64" fn(stack_base: u64, heap_base: u64, heap_size: u64) -> ! =
+            core::mem::transmute(kernel_entry);
+        kernel_entry(stack_base as u64, heap_base as u64, heap_size as u64);
     }
 
     #[allow(unreachable_code)]
