@@ -1,9 +1,11 @@
 #![no_std]
 #![no_main]
+#![feature(naked_functions_rustic_abi)]
 
 extern crate alloc;
 
 mod allocator;
+mod interrupt;
 mod log;
 mod spin;
 mod uart;
@@ -11,6 +13,8 @@ mod x86;
 
 use core::arch::asm;
 use core::panic::PanicInfo;
+
+use bitfield_struct::bitfield;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn kernel_entry(stack_base: u64, heap_base: u64, heap_size: u64) -> ! {
@@ -36,6 +40,8 @@ extern "C" fn kernel_main(heap_base: u64, heap_size: u64) -> ! {
 
     allocator::init_allocator(heap_base as usize, heap_size as usize);
     info!("Allocator initialized!");
+
+    interrupt::init_exceptions();
 
     loop {
         unsafe {
