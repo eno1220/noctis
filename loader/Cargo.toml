@@ -4,4 +4,5 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+elf = { version = "0.7.4", features = ["nightly"], default-features = false }
 r-efi = "5.2.0"

@@ -1,7 +1,9 @@
 #![feature(uefi_std)]
 
 use core::arch::asm;
+use elf::{ElfBytes, endian::AnyEndian};
 use r_efi::efi::{self, MemoryDescriptor};
+use r_efi::system;
 use std::{
     ffi::OsStr,
     os::uefi::{self, ffi::OsStrExt},
@@ -124,6 +126,18 @@ fn get_root_dir(
     Ok(root_dir)
 }
 
+fn calc_load_size(file: &elf::ElfBytes<AnyEndian>) -> (u64, u64) {
+    let mut min_addr = u64::MAX;
+    let mut max_addr = 0;
+    for ph in file.segments().unwrap() {
+        if ph.p_type == elf::abi::PT_LOAD {
+            min_addr = min_addr.min(ph.p_vaddr);
+            max_addr = max_addr.max(ph.p_vaddr + ph.p_memsz);
+        }
+    }
+    (min_addr, max_addr)
+}
+
 #[allow(const_item_mutation)]
 fn main() {
     //let st = uefi::env::system_table().as_ptr() as *const efi::SystemTable;
@@ -188,8 +202,93 @@ fn main() {
         println!("Failed to get file info: {status:?}");
         return;
     }
-    println!("File Size: {}", unsafe { (*file_info).file_size });
 
+    let file_size = unsafe { (*file_info).file_size };
+    println!("File Size: {file_size:#018x}");
+
+    let mut kernel_ref = vec![0u8; file_size as usize + 1024];
+    let kernel_ref = kernel_ref.as_mut_ptr();
+    let mut file_size = file_size as usize + 1024;
+    let status = unsafe {
+        ((*kernel_file).read)(
+            kernel_file,
+            &mut file_size as *mut usize,
+            kernel_ref as *mut core::ffi::c_void,
+        )
+    };
+    if status != efi::Status::SUCCESS {
+        println!("Failed to read kernel file: {status:?}");
+        return;
+    }
+
+    let kernel_elf = match ElfBytes::<AnyEndian>::minimal_parse(unsafe {
+        core::slice::from_raw_parts(kernel_ref, file_size)
+    }) {
+        Ok(elf) => elf,
+        Err(err) => {
+            println!("Failed to parse ELF file: {err:?}");
+            return;
+        }
+    };
+    let kernel_entry = kernel_elf.ehdr.e_entry;
+    println!("Kernel Entry Point: {kernel_entry:#018x}");
+
+    let (mut kernel_base, kernel_end) = calc_load_size(&kernel_elf);
+    let status = unsafe {
+        ((*bt).allocate_pages)(
+            system::ALLOCATE_ADDRESS,
+            efi::LOADER_DATA,
+            (((kernel_end - kernel_base) + 0xFFF) / 0x1000) as usize,
+            &mut kernel_base as *mut u64,
+        )
+    };
+    if status != efi::Status::SUCCESS {
+        println!("Failed to allocate memory for kernel: {status:?}");
+        return;
+    }
+    println!("Allocated memory for kernel at: {kernel_base:#018x}");
+
+    for ph in kernel_elf.segments().unwrap() {
+        if ph.p_type == elf::abi::PT_LOAD {
+            let segment_src = unsafe { kernel_ref.add(ph.p_offset as usize) };
+            let segment_size = ph.p_filesz as usize;
+            let segment_dst = (ph.p_vaddr) as *mut u8;
+            unsafe {
+                core::ptr::copy_nonoverlapping(segment_src, segment_dst, segment_size);
+                core::ptr::write_bytes(
+                    segment_dst.add(segment_size),
+                    0,
+                    ph.p_memsz as usize - segment_size,
+                );
+            }
+        }
+    }
+
+    let memory_map = match get_memory_map(bt) {
+        Ok(map) => map,
+        Err(status) => {
+            println!("Failed to get memory map: {status:?}");
+            return;
+        }
+    };
+
+    let status = unsafe {
+        ((*bt).exit_boot_services)(
+            uefi::env::image_handle().as_ptr() as *mut efi::Handle as *mut core::ffi::c_void,
+            memory_map.map_key,
+        )
+    };
+    if status != efi::Status::SUCCESS {
+        println!("Failed to exit boot services: {status:?}");
+        return;
+    }
+
+    unsafe {
+        let kernel_entry: extern "sysv64" fn() -> ! = core::mem::transmute(kernel_entry);
+        kernel_entry();
+    }
+
+    #[allow(unreachable_code)]
     loop {
         unsafe { asm!("hlt") };
     }
