@@ -17,7 +17,7 @@ impl Uart {
     pub fn init(&self) {
         x86::write_io(self.base + 1, 0x00);
         x86::write_io(self.base + 3, 0x80);
-        x86::write_io(self.base + 0, (IO_BAUD_DIVISOR & 0xFF) as u8);
+        x86::write_io(self.base, (IO_BAUD_DIVISOR & 0xFF) as u8);
         x86::write_io(self.base + 1, (IO_BAUD_DIVISOR >> 8) as u8);
         x86::write_io(self.base + 3, 0x03);
         x86::write_io(self.base + 2, 0xC7);

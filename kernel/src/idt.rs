@@ -2,9 +2,9 @@ use crate::{error, gdt, info};
 use alloc::boxed::Box;
 use bitfield_struct::bitfield;
 use core::arch::{asm, global_asm, naked_asm};
+use core::fmt;
 use core::mem::size_of;
 use core::pin::Pin;
-use core::{fmt, u128};
 
 #[repr(C)]
 #[derive(Debug)]
@@ -227,7 +227,7 @@ impl IdtDescriptor {
         dpl: u8,
         f: unsafe extern "x86-interrupt" fn(),
     ) -> Self {
-        let f = f as u64;
+        let f = f as usize;
         Self::default()
             .with_offset_low((f & 0xffff) as u16)
             .with_segment_selector(segment_selector)
@@ -304,6 +304,5 @@ struct IdtRegister {
 const _: () = assert!(size_of::<IdtRegister>() == 10);
 
 pub fn init_idt() -> Idt {
-    let idt = Idt::new(gdt::KERNEL_CODE_SEGMENT);
-    idt
+    Idt::new(gdt::KERNEL_CODE_SEGMENT)
 }

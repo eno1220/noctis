@@ -1,5 +1,3 @@
-// TODO: impl spin lock
-
 use crate::info;
 use crate::spin::{self, SpinLock};
 use core::alloc::GlobalAlloc;
