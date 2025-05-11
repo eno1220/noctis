@@ -10,6 +10,7 @@ mod gdt;
 mod idt;
 mod log;
 mod spin;
+mod timer;
 mod uart;
 mod x86;
 
@@ -44,6 +45,9 @@ extern "C" fn kernel_main(heap_base: u64, heap_size: u64) -> ! {
     let _gdt = gdt::init_gdt();
     let _idt = idt::init_idt();
     info!("GDT and IDT initialized!");
+
+    timer::init_timer();
+    info!("Timer initialized!");
 
     loop {
         unsafe {

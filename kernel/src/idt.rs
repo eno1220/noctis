@@ -1,4 +1,4 @@
-use crate::{error, gdt, info};
+use crate::{error, gdt, timer};
 use alloc::boxed::Box;
 use bitfield_struct::bitfield;
 use core::arch::{asm, global_asm, naked_asm};
@@ -102,11 +102,13 @@ macro_rules! interrupt_entry_with_ecode {
 interrupt_entry_without_ecode!(3);
 interrupt_entry_without_ecode!(6);
 interrupt_entry_with_ecode!(13);
+interrupt_entry_without_ecode!(42);
 
 unsafe extern "x86-interrupt" {
     fn interrupt_entry_3();
     fn interrupt_entry_6();
     fn interrupt_entry_13();
+    fn interrupt_entry_42();
 }
 
 #[allow(unused)]
@@ -163,7 +165,7 @@ unsafe fn interrupt_handler_common() {
 
 #[unsafe(no_mangle)]
 extern "C" fn interrupt_handler(stack_frame: &InterruptStackFrame) {
-    info!("Interrupt occurred: {:?}", stack_frame);
+    //info!("Interrupt occurred: {:?}", stack_frame);
     match stack_frame.vector {
         // Breakpoint exception
         3 => {
@@ -179,6 +181,13 @@ extern "C" fn interrupt_handler(stack_frame: &InterruptStackFrame) {
             error!("General protection fault");
             let rip = stack_frame.context.rip;
             error!("RIP: {rip:#018x}");
+        }
+        // Local timer interrupt
+        42 => {
+            error!("Local timer interrupt");
+            timer::increment_count();
+            timer::notify_end_of_interrupt();
+            return;
         }
         _ => {
             error!("Unhandled interrupt: {}", stack_frame.vector);
@@ -279,6 +288,13 @@ impl Idt {
             IDT_DPL_0,
             interrupt_entry_13,
         );
+        entries[42] = IdtDescriptor::create(
+            segment_selector,
+            1,
+            IDT_GATE_TYPE_INTGATE,
+            IDT_DPL_0,
+            interrupt_entry_42,
+        );
         let entries = Box::pin(entries);
         let register = IdtRegister {
             limit: (entries.len() * size_of::<IdtDescriptor>() - 1) as u16,
@@ -290,6 +306,7 @@ impl Idt {
                 in(reg) &register,
                 options(nostack),
             );
+            asm!("sti", options(nostack),);
         }
         Self { entries }
     }
