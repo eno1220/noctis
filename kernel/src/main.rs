@@ -1,11 +1,13 @@
 #![no_std]
 #![no_main]
 #![feature(naked_functions_rustic_abi)]
+#![feature(abi_x86_interrupt)]
 
 extern crate alloc;
 
 mod allocator;
 mod gdt;
+mod idt;
 mod log;
 mod spin;
 mod uart;
@@ -40,6 +42,8 @@ extern "C" fn kernel_main(heap_base: u64, heap_size: u64) -> ! {
     info!("Allocator initialized!");
 
     let _gdt = gdt::init_gdt();
+    let _idt = idt::init_idt();
+    info!("GDT and IDT initialized!");
 
     loop {
         unsafe {

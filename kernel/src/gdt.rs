@@ -165,9 +165,9 @@ impl TssDescriptor {
     }
 }
 
-const KERNEL_CODE_SEGMENT: u16 = 1 << 3;
-const KERNEL_DATA_SEGMENT: u16 = 2 << 3;
-const TSS64_SEGMENT_SELECTOR: u16 = 3 << 3;
+pub const KERNEL_CODE_SEGMENT: u16 = 1 << 3;
+pub const KERNEL_DATA_SEGMENT: u16 = 2 << 3;
+pub const TSS64_SEGMENT_SELECTOR: u16 = 3 << 3;
 
 #[repr(C, packed)]
 struct Gdt {
