@@ -53,6 +53,7 @@ pub fn init_timer() {
     LOCAL_APIC_TIMER.lock().init();
 }
 
+#[allow(dead_code)]
 pub fn get_count() -> u32 {
     LOCAL_APIC_TIMER.lock().count
 }

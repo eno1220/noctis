@@ -1,4 +1,4 @@
-use crate::{error, gdt, timer};
+use crate::{error, gdt, timer, x86};
 use alloc::boxed::Box;
 use bitfield_struct::bitfield;
 use core::arch::{asm, global_asm, naked_asm};
@@ -306,8 +306,8 @@ impl Idt {
                 in(reg) &register,
                 options(nostack),
             );
-            asm!("sti", options(nostack),);
         }
+        x86::enable_interrupts();
         Self { entries }
     }
 }
