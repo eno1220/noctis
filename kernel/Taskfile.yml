@@ -6,6 +6,11 @@ tasks:
     cmds:
       - cargo build
 
+  build-test:
+    desc: "Test the project"
+    cmds:
+      - cargo test --no-run
+
   clean:
     desc: "Clean the project"
     cmds:

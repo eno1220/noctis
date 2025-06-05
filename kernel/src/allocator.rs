@@ -38,6 +38,7 @@ unsafe impl GlobalAlloc for spin::SpinLock<LinerAllocator> {
             Some(end) => end,
             None => return core::ptr::null_mut(),
         };
+        #[cfg(not(test))]
         info!(
             "Allocating {} bytes at {:#018x}",
             layout.size(),
@@ -52,8 +53,10 @@ unsafe impl GlobalAlloc for spin::SpinLock<LinerAllocator> {
         }
     }
 
+    #[allow(unused_variables)]
     unsafe fn dealloc(&self, ptr: *mut u8, _layout: core::alloc::Layout) {
         // Deallocation is not supported in this simple allocator
+        #[cfg(not(test))]
         info!("Deallocating memory at {:#018x}", ptr as usize);
     }
 }
@@ -66,5 +69,33 @@ pub static ALLOCATOR: SpinLock<LinerAllocator> = SpinLock::new(LinerAllocator::n
 pub fn init_allocator(start: usize, size: usize) {
     unsafe {
         ALLOCATOR.lock().init(start, size);
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use alloc::alloc::{alloc, dealloc};
+    use alloc::vec::Vec;
+    use core::alloc::Layout;
+
+    #[test_case]
+    fn malloc_iterate() {
+        for i in 0..256 {
+            let mut vec = Vec::new();
+            vec.resize(i, 10);
+        }
+    }
+
+    #[test_case]
+    fn malloc_align() {
+        for align in [1, 2, 4, 8, 16, 32, 64, 256, 4096] {
+            let layout = Layout::from_size_align(align * 2, align).unwrap();
+            unsafe {
+                let ptr = alloc(layout);
+                assert!(!ptr.is_null(), "Allocation failed");
+                assert!((ptr as usize) % align == 0, "Pointer is not aligned");
+                dealloc(ptr, layout);
+            }
+        }
     }
 }

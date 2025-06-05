@@ -1,7 +1,10 @@
-#![no_std]
 #![no_main]
+#![no_std]
 #![feature(naked_functions_rustic_abi)]
 #![feature(abi_x86_interrupt)]
+#![feature(custom_test_frameworks)]
+#![test_runner(crate::test::test_runner)]
+#![reexport_test_harness_main = "test_main"]
 
 extern crate alloc;
 
@@ -9,12 +12,17 @@ mod allocator;
 mod gdt;
 mod idt;
 mod log;
+mod qemu;
 mod spin;
 mod timer;
 mod uart;
 mod x86;
 
+#[cfg(test)]
+mod test;
+
 use core::arch::asm;
+#[allow(unused_imports)]
 use core::panic::PanicInfo;
 
 #[unsafe(no_mangle)]
@@ -49,6 +57,9 @@ extern "C" fn kernel_main(heap_base: u64, heap_size: u64) -> ! {
     timer::init_timer();
     info!("Timer initialized!");
 
+    #[cfg(test)]
+    test_main();
+
     loop {
         unsafe {
             asm!("hlt");
@@ -56,13 +67,12 @@ extern "C" fn kernel_main(heap_base: u64, heap_size: u64) -> ! {
     }
 }
 
+#[cfg(not(test))]
 #[panic_handler]
 fn panic(panic_info: &PanicInfo) -> ! {
     error!("!!!!! Kernel panic !!!!!");
     error!("Panic info: {:?}", panic_info);
     loop {
-        unsafe {
-            asm!("hlt");
-        }
+        unsafe { asm!("hlt") }
     }
 }

@@ -7,6 +7,7 @@ vars:
     -drive format=raw,file=fat:rw:mnt
     -machine q35
     -serial mon:stdio
+    -device isa-debug-exit,iobase=0xf4,iosize=0x04
     -nographic
     -no-reboot
 
@@ -19,16 +20,6 @@ includes:
     dir: ./loader
 
 tasks:
-  build-loader:
-    desc: "Build UEFI loader"
-    cmds:
-      - task: loader:build
-
-  build-kernel:
-    desc: "Build kernel"
-    cmds:
-      - task: kernel:build
-
   prepare-mnt:
     desc: "Prepare EFI and kernel files"
     cmds:
@@ -38,14 +29,28 @@ tasks:
 
   run:
     desc: "Build and run with QEMU"
-    deps: [build-loader, build-kernel]
+    deps: [loader:build, kernel:build]
     cmds:
       - task: prepare-mnt
       - qemu-system-x86_64 {{.QEMU_OPTS}}
 
+  prepare-mnt-test:
+    desc: "Prepare EFI and kernel files for test"
+    cmds:
+      - mkdir -p mnt/EFI/BOOT
+      - cp loader/target/x86_64-unknown-uefi/debug/loader.efi mnt/EFI/BOOT/BOOTX64.EFI
+      - cp "$(ls -t ./kernel/target/x86_64-unknown-kernel/debug/deps/kernel-* 2>/dev/null | head -n 1)" ./mnt/kernel.elf
+
+  test:
+    desc: "Test with QEMU"
+    deps: [loader:build, kernel:build-test]
+    cmds:
+      - task: prepare-mnt-test
+      - qemu-system-x86_64 {{.QEMU_OPTS}}
+
   gdb:
     desc: "Run QEMU with GDB server for debugging"
-    deps: [build-loader, build-kernel, prepare-mnt]
+    deps: [loader:build, kernel:build, prepare-mnt]
     cmds:
       - qemu-system-x86_64 {{.QEMU_OPTS}} -s -S
 
