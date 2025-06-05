@@ -1,0 +1,74 @@
+version: '3'
+
+vars:
+  QEMU_OPTS: >-
+    -m 2048M
+    -bios thirdparty/RELEASEX64_OVMF.fd
+    -drive format=raw,file=fat:rw:mnt
+    -machine q35
+    -serial mon:stdio
+    -nographic
+    -no-reboot
+
+includes:
+  kernel: 
+    taskfile: ./kernel/Taskfile.yml
+    dir: ./kernel
+  loader:
+    taskfile: ./loader/Taskfile.yml
+    dir: ./loader
+
+tasks:
+  build-loader:
+    desc: "Build UEFI loader"
+    cmds:
+      - task: loader:build
+
+  build-kernel:
+    desc: "Build kernel"
+    cmds:
+      - task: kernel:build
+
+  prepare-mnt:
+    desc: "Prepare EFI and kernel files"
+    cmds:
+      - mkdir -p mnt/EFI/BOOT/
+      - cp loader/target/x86_64-unknown-uefi/debug/loader.efi mnt/EFI/BOOT/BOOTX64.EFI
+      - cp kernel/target/x86_64-unknown-kernel/debug/kernel mnt/kernel.elf
+
+  run:
+    desc: "Build and run with QEMU"
+    deps: [build-loader, build-kernel]
+    cmds:
+      - task: prepare-mnt
+      - qemu-system-x86_64 {{.QEMU_OPTS}}
+
+  gdb:
+    desc: "Run QEMU with GDB server for debugging"
+    deps: [build-loader, build-kernel, prepare-mnt]
+    cmds:
+      - qemu-system-x86_64 {{.QEMU_OPTS}} -s -S
+
+  debug:
+    desc: "Start GDB and connect to QEMU"
+    cmds:
+      - gdb -q kernel/target/x86_64-unknown-kernel/debug/kernel -ex "target remote :1234"
+
+  fmt:
+    desc: "Format code using rustfmt"
+    cmds:
+      - task: loader:fmt
+      - task: kernel:fmt
+
+  clippy:
+    desc: "Lint code using clippy"
+    cmds:
+      - task: loader:clippy
+      - task: kernel:clippy
+
+  clean:
+    desc: "Clean build artifacts and mnt"
+    cmds:
+      - task: loader:clean
+      - task: kernel:clean
+      - rm -rf mnt

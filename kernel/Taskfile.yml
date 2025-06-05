@@ -1,0 +1,22 @@
+version: '3'
+
+tasks:
+  build:
+    desc: "Build the project"
+    cmds:
+      - cargo build
+
+  clean:
+    desc: "Clean the project"
+    cmds:
+      - cargo clean
+
+  fmt:
+    desc: "Format the code"
+    cmds:
+      - cargo fmt
+
+  clippy:
+    desc: "Run Clippy for linting"
+    cmds:
+      - cargo clippy
