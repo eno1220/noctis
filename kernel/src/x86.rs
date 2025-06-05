@@ -25,18 +25,12 @@ pub fn read_io(port: u16) -> u8 {
 #[allow(dead_code)]
 pub fn disable_interrupts() {
     unsafe {
-        asm!(
-            "cli",
-            options(nostack),
-        );
+        asm!("cli", options(nostack),);
     }
 }
 
 pub fn enable_interrupts() {
     unsafe {
-        asm!(
-            "sti",
-            options(nostack),
-        );
+        asm!("sti", options(nostack),);
     }
 }
