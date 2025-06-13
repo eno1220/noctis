@@ -1,4 +1,3 @@
-use crate::info;
 use crate::spin::{self, SpinLock};
 use core::alloc::GlobalAlloc;
 
@@ -38,12 +37,6 @@ unsafe impl GlobalAlloc for spin::SpinLock<LinerAllocator> {
             Some(end) => end,
             None => return core::ptr::null_mut(),
         };
-        #[cfg(not(test))]
-        info!(
-            "Allocating {} bytes at {:#018x}",
-            layout.size(),
-            alloc_start
-        );
 
         if alloc_end > allocator.end {
             core::ptr::null_mut()
@@ -56,8 +49,6 @@ unsafe impl GlobalAlloc for spin::SpinLock<LinerAllocator> {
     #[allow(unused_variables)]
     unsafe fn dealloc(&self, ptr: *mut u8, _layout: core::alloc::Layout) {
         // Deallocation is not supported in this simple allocator
-        #[cfg(not(test))]
-        info!("Deallocating memory at {:#018x}", ptr as usize);
     }
 }
 

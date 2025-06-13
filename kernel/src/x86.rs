@@ -34,3 +34,13 @@ pub fn enable_interrupts() {
         asm!("sti", options(nostack),);
     }
 }
+
+pub fn write_cr3(value: usize) {
+    unsafe {
+        asm!(
+            "mov cr3, {}",
+            in(reg) value,
+            options(nostack),
+        );
+    }
+}

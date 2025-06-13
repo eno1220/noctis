@@ -2,7 +2,7 @@ version: '3'
 
 vars:
   QEMU_OPTS: >-
-    -m 2048M
+    -m 1024M
     -bios thirdparty/RELEASEX64_OVMF.fd
     -drive format=raw,file=fat:rw:mnt
     -machine q35

@@ -12,6 +12,7 @@ mod allocator;
 mod gdt;
 mod idt;
 mod log;
+mod paging;
 mod qemu;
 mod spin;
 mod timer;
@@ -49,6 +50,9 @@ extern "C" fn kernel_main(heap_base: u64, heap_size: u64) -> ! {
 
     allocator::init_allocator(heap_base as usize, heap_size as usize);
     info!("Allocator initialized!");
+
+    let _ = paging::init_paging();
+    info!("Paging initialized!");
 
     let _gdt = gdt::init_gdt();
     let _idt = idt::init_idt();

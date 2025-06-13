@@ -102,12 +102,14 @@ macro_rules! interrupt_entry_with_ecode {
 interrupt_entry_without_ecode!(3);
 interrupt_entry_without_ecode!(6);
 interrupt_entry_with_ecode!(13);
+interrupt_entry_with_ecode!(14);
 interrupt_entry_without_ecode!(42);
 
 unsafe extern "x86-interrupt" {
     fn interrupt_entry_3();
     fn interrupt_entry_6();
     fn interrupt_entry_13();
+    fn interrupt_entry_14();
     fn interrupt_entry_42();
 }
 
@@ -181,6 +183,24 @@ extern "C" fn interrupt_handler(stack_frame: &InterruptStackFrame) {
             error!("General protection fault");
             let rip = stack_frame.context.rip;
             error!("RIP: {rip:#018x}");
+        }
+        // Page fault
+        14 => {
+            error!("Page fault");
+            let rip = stack_frame.context.rip;
+            error!("RIP: {rip:#018x}");
+            if stack_frame.error_code & 0x1 != 0 {
+                error!("Page not present");
+            }
+            if stack_frame.error_code & 0x2 != 0 {
+                error!("Write access violation");
+            }
+            if stack_frame.error_code & 0x4 != 0 {
+                error!("User mode access violation");
+            }
+            if stack_frame.error_code & 0x8 != 0 {
+                error!("Reserved bit set");
+            }
         }
         // Local timer interrupt
         42 => {
@@ -287,6 +307,13 @@ impl Idt {
             IDT_GATE_TYPE_INTGATE,
             IDT_DPL_0,
             interrupt_entry_13,
+        );
+        entries[14] = IdtDescriptor::create(
+            segment_selector,
+            1,
+            IDT_GATE_TYPE_INTGATE,
+            IDT_DPL_0,
+            interrupt_entry_14,
         );
         entries[42] = IdtDescriptor::create(
             segment_selector,
