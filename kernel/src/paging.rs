@@ -186,6 +186,8 @@ impl PageTableEntry {
         if self.is_present() {
             Err("Next level table is already allocated")
         } else {
+            // 現在は恒等マッピングを仮定しているためこれで良いが、
+            // 将来的には物理アドレスを割り当てる必要がある
             let next: Box<PageTableNode> = Box::new(unsafe { MaybeUninit::zeroed().assume_init() });
             self.value = Box::into_raw(next) as u64 | PageTableAttr::ReadWriteKernel as u64;
             Ok(self)
@@ -224,18 +226,44 @@ impl PageTable {
     pub fn new() -> Self {
         unsafe { MaybeUninit::zeroed().assume_init() }
     }
-    pub fn map(
+    fn map(
         &mut self,
-        virt_addr: VirtAddr,
-        phys_addr: PhysAddr,
+        virt_start: VirtAddr,
+        phys_start: PhysAddr,
+        num_pages: usize,
         attr: PageTableAttr,
     ) -> Result<(), &'static str> {
+        assert!(
+            virt_start.as_usize() % PAGE_SIZE == 0,
+            "Virtual address must be page-aligned"
+        );
+        assert!(
+            phys_start.as_usize() % PAGE_SIZE == 0,
+            "Physical address must be page-aligned"
+        );
+
         let mut node = &mut self.pml4;
         for level in (2..=4).rev() {
-            let index = virt_addr.nth_level_table_index(level);
+            let index = virt_start.nth_level_table_index(level);
             node = node.entries[index].get_or_alloc_next_level_table()?;
         }
-        node.entries[virt_addr.pt_index()].set_entry(phys_addr, attr)?;
+        // TODO: VirtAddr, PhysAddrに対して四則演算用のtraitを実装する
+        let mut vaddr = virt_start.as_usize();
+        let mut paddr = phys_start.as_usize();
+        let start_index = virt_start.pt_index();
+        for i in 0..num_pages {
+            let index = (start_index + i) % 512;
+            if index == 0 && i != 0 {
+                node = &mut self.pml4;
+                for level in (2..=4).rev() {
+                    let index = VirtAddr::new(vaddr).nth_level_table_index(level);
+                    node = node.entries[index].get_or_alloc_next_level_table()?;
+                }
+            }
+            node.entries[index].set_entry(PhysAddr::new(paddr), attr)?;
+            vaddr += PAGE_SIZE;
+            paddr += PAGE_SIZE;
+        }
         Ok(())
     }
     pub fn create_mapping(
@@ -246,12 +274,7 @@ impl PageTable {
         attr: PageTableAttr,
     ) -> Result<(), &'static str> {
         let num_pages = (size.as_usize() + PAGE_SIZE - 1) / PAGE_SIZE; // Or panic if size is not page-aligned...?
-        for i in 0..num_pages {
-            let virt_addr = VirtAddr::new(virt_start.as_usize() + i * PAGE_SIZE);
-            let phys_addr = PhysAddr::new(phys_start.as_usize() + i * PAGE_SIZE);
-            self.map(virt_addr, phys_addr, attr)?;
-        }
-        Ok(())
+        self.map(virt_start, phys_start, num_pages, attr)
     }
 }
 
