@@ -50,8 +50,9 @@ tasks:
 
   gdb:
     desc: "Run QEMU with GDB server for debugging"
-    deps: [loader:build, kernel:build, prepare-mnt]
+    deps: [loader:build, kernel:build]
     cmds:
+      - task: prepare-mnt
       - qemu-system-x86_64 {{.QEMU_OPTS}} -s -S
 
   debug:

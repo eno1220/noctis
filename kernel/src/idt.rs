@@ -188,19 +188,8 @@ extern "C" fn interrupt_handler(stack_frame: &InterruptStackFrame) {
         14 => {
             error!("Page fault");
             let rip = stack_frame.context.rip;
-            error!("RIP: {rip:#018x}");
-            if stack_frame.error_code & 0x1 != 0 {
-                error!("Page not present");
-            }
-            if stack_frame.error_code & 0x2 != 0 {
-                error!("Write access violation");
-            }
-            if stack_frame.error_code & 0x4 != 0 {
-                error!("User mode access violation");
-            }
-            if stack_frame.error_code & 0x8 != 0 {
-                error!("Reserved bit set");
-            }
+            let error_code = stack_frame.error_code;
+            error!("RIP: {rip:#018x} Error Code: {error_code:#0b}");
         }
         // Local timer interrupt
         42 => {

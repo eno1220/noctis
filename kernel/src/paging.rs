@@ -1,4 +1,4 @@
-use crate::{info, x86::write_cr3};
+use crate::{info, symbol_offsets, x86::write_cr3};
 use alloc::boxed::Box;
 use core::fmt::Debug;
 use core::{fmt, mem::MaybeUninit, pin::Pin};
@@ -107,17 +107,22 @@ const PTE_ATTR_WRITABLE: u64 = 1 << 1; // Page is writable
 const PTE_ATTR_USER_ACCESSIBLE: u64 = 1 << 2; // Page is accessible by user mode
 const PTE_ATTR_WRITE_THROUGH: u64 = 1 << 3; // Write-through caching
 const PTE_ATTR_CACHE_DISABLED: u64 = 1 << 4; // Cache disabled
-const PTE_ATTR_EXECUTABLE: u64 = 1 << 63; // Page is executable
+const PTE_ATTR_NOT_EXECUTABLE: u64 = 1 << 63; // Page is **not** executable
 
 #[repr(u64)]
 #[derive(Clone, Copy, Debug)]
 #[allow(dead_code)]
 pub enum PageTableAttr {
     NotPresent = 0,
-    ReadWriteKernel = PTE_ATTR_PRESENT | PTE_ATTR_WRITABLE,
-    ReadWriteKernelIo =
-        PTE_ATTR_PRESENT | PTE_ATTR_WRITABLE | PTE_ATTR_WRITE_THROUGH | PTE_ATTR_CACHE_DISABLED,
-    ReadWriteExecuteKernel = PTE_ATTR_PRESENT | PTE_ATTR_WRITABLE | PTE_ATTR_EXECUTABLE,
+    ReadExecuteKernel = PTE_ATTR_PRESENT,
+    ReadKernel = PTE_ATTR_PRESENT | PTE_ATTR_NOT_EXECUTABLE,
+    ReadWriteExecuteKernel = PTE_ATTR_PRESENT | PTE_ATTR_WRITABLE,
+    ReadWriteKernel = PTE_ATTR_PRESENT | PTE_ATTR_WRITABLE | PTE_ATTR_NOT_EXECUTABLE,
+    ReadWriteKernelIO = PTE_ATTR_PRESENT
+        | PTE_ATTR_WRITABLE
+        | PTE_ATTR_WRITE_THROUGH
+        | PTE_ATTR_CACHE_DISABLED
+        | PTE_ATTR_NOT_EXECUTABLE,
 }
 
 #[repr(transparent)]
@@ -149,7 +154,7 @@ impl PageTableEntry {
         self.get_bit(2)
     }
     fn is_executable(&self) -> bool {
-        self.get_bit(63)
+        !self.get_bit(63)
     }
 
     fn format(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -171,7 +176,7 @@ impl PageTableEntry {
         if paddr.as_usize() & !PTE_ATTR_MASK as usize != 0 {
             return Err("Physical address must be page-aligned");
         }
-        self.value = paddr.as_u64() | attr as u64;
+        self.value = paddr.as_u64() | (attr as u64);
         Ok(())
     }
 
@@ -189,7 +194,7 @@ impl PageTableEntry {
             // 現在は恒等マッピングを仮定しているためこれで良いが、
             // 将来的には物理アドレスを割り当てる必要がある
             let next: Box<PageTableNode> = Box::new(unsafe { MaybeUninit::zeroed().assume_init() });
-            self.value = Box::into_raw(next) as u64 | PageTableAttr::ReadWriteKernel as u64;
+            self.value = Box::into_raw(next) as u64 | PageTableAttr::ReadWriteExecuteKernel as u64;
             Ok(self)
         }
     }
@@ -296,10 +301,28 @@ pub fn init_paging() -> Pin<Box<PageTable>> {
     page_table
         .as_mut()
         .create_mapping(
+            VirtAddr::new(symbol_offsets::__text()),
+            PhysAddr::new(symbol_offsets::__text()),
+            MSize::new(symbol_offsets::__text_end() - symbol_offsets::__text()),
+            PageTableAttr::ReadExecuteKernel,
+        )
+        .expect("Failed to .text area mapping");
+    page_table
+        .as_mut()
+        .create_mapping(
+            VirtAddr::new(symbol_offsets::__rodata()),
+            PhysAddr::new(symbol_offsets::__rodata()),
+            MSize::new(symbol_offsets::__rodata_end() - symbol_offsets::__rodata()),
+            PageTableAttr::ReadKernel,
+        )
+        .expect("Failed to .rodata area mapping");
+    page_table
+        .as_mut()
+        .create_mapping(
             VirtAddr::new(0xFEE0_0000),
             PhysAddr::new(0xFEE0_0000),
             MSize::new(0x1000), // 4 KiB for I/O APIC
-            PageTableAttr::ReadWriteKernelIo,
+            PageTableAttr::ReadWriteKernelIO,
         )
         .expect("Failed to create kernel I/O mapping");
     write_cr3(&*page_table as *const PageTable as usize);

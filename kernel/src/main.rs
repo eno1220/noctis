@@ -71,6 +71,34 @@ extern "C" fn kernel_main(heap_base: u64, heap_size: u64) -> ! {
     }
 }
 
+// ref: https://github.com/redox-os/kernel/blob/master/src/main.rs
+macro_rules! symbol_offsets(
+    ($($name:ident), *) => {
+        $(
+            #[inline]
+            pub fn $name() -> usize {
+                unsafe extern "C" {
+                    static $name: u8;
+                }
+                unsafe { &$name as *const u8 as usize }
+            }
+        )*
+    };
+);
+
+mod symbol_offsets {
+    symbol_offsets!(
+        __text,
+        __text_end,
+        __rodata,
+        __rodata_end,
+        __data,
+        __data_end,
+        __bss,
+        __bss_end
+    );
+}
+
 #[cfg(not(test))]
 #[panic_handler]
 fn panic(panic_info: &PanicInfo) -> ! {

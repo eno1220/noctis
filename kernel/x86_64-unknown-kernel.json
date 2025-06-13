@@ -11,7 +11,7 @@
   "linker": "rust-lld",
   "linker-flavor": "ld.lld",
   "pre-link-args": {
-    "ld": ["--entry", "kernel_entry", "--image-base=0x2000000"]
+    "ld": ["--entry", "kernel_entry", "-Tkernel.ld", "-Map=kernel.map"]
   },
   "panic-strategy": "abort",
   "disable-redzone": true,

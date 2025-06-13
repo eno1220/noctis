@@ -1,2 +1,4 @@
 mnt/
 thirdparty/
+kernel.map
+out.log
