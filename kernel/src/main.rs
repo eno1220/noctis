@@ -46,6 +46,18 @@ pub extern "C" fn kernel_entry(stack_base: u64, heap_base: u64, heap_size: u64) 
 #[unsafe(no_mangle)]
 extern "C" fn kernel_main(heap_base: u64, heap_size: u64) -> ! {
     uart::Uart::default().init();
+
+    print!(
+        r#"
+                     _    _
+ _ __    ___    ___ | |_ (_) ___
+| '_ \  / _ \  / __|| __|| |/ __|
+| | | || (_) || (__ | |_ | |\__ \
+|_| |_| \___/  \___| \__||_||___/
+
+
+"#
+    );
     info!("Kernel started!");
 
     allocator::init_allocator(heap_base as usize, heap_size as usize);

@@ -1,4 +1,4 @@
-use crate::{error, gdt, timer, x86};
+use crate::{error, gdt, info, timer, x86};
 use alloc::boxed::Box;
 use bitfield_struct::bitfield;
 use core::arch::{asm, global_asm, naked_asm};
@@ -193,7 +193,7 @@ extern "C" fn interrupt_handler(stack_frame: &InterruptStackFrame) {
         }
         // Local timer interrupt
         42 => {
-            error!("Local timer interrupt");
+            info!("Local timer interrupt");
             timer::increment_count();
             timer::notify_end_of_interrupt();
             return;
