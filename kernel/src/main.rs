@@ -15,6 +15,7 @@ mod log;
 mod paging;
 mod qemu;
 mod spin;
+mod task;
 mod timer;
 mod uart;
 mod x86;
@@ -40,6 +41,20 @@ pub extern "C" fn kernel_entry(stack_base: u64, heap_base: u64, heap_size: u64) 
                 in(reg) heap_size,
             );
         }
+    }
+}
+
+fn task_a() {
+    loop {
+        print!("a");
+        unsafe { asm!("hlt") }
+    }
+}
+
+fn task_b() {
+    loop {
+        print!("b");
+        unsafe { asm!("hlt") }
     }
 }
 
@@ -72,6 +87,12 @@ extern "C" fn kernel_main(heap_base: u64, heap_size: u64) -> ! {
 
     timer::init_timer();
     info!("Timer initialized!");
+
+	x86::disable_interrupts();
+    task::init();
+    task::spawn(task_a);
+    task::spawn(task_b);
+    x86::enable_interrupts();
 
     #[cfg(test)]
     test_main();

@@ -25,7 +25,7 @@ impl LocalApicTimer {
 
     pub fn init(&self) {
         unsafe {
-            core::ptr::write_volatile(self.register(Self::TIMER_DIV), 0b110);
+            core::ptr::write_volatile(self.register(Self::TIMER_DIV), 0b100);
             core::ptr::write_volatile(self.register(Self::TIMER_INIT_COUNT), 0x1000000);
             // periodic interrupt
             // call interrupt handler 0x2a(42)

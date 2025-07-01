@@ -1,4 +1,4 @@
-use crate::{error, gdt, info, timer, x86};
+use crate::{error, gdt, info, task, timer, x86};
 use alloc::boxed::Box;
 use bitfield_struct::bitfield;
 use core::arch::{asm, global_asm, naked_asm};
@@ -161,8 +161,17 @@ unsafe fn interrupt_handler_common() {
         "pop r15",
         // Return from the interrupt
         "add rsp, 0x10",
+        "call check_and_schedule",
         "iretq"
     );
+}
+
+#[unsafe(no_mangle)]
+extern "C" fn check_and_schedule() {
+    let current = task::context();
+    if current.ticks.load(core::sync::atomic::Ordering::Relaxed) >= 3 {
+        task::schedule();
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -196,6 +205,7 @@ extern "C" fn interrupt_handler(stack_frame: &InterruptStackFrame) {
             info!("Local timer interrupt");
             timer::increment_count();
             timer::notify_end_of_interrupt();
+            task::tick();
             return;
         }
         _ => {
