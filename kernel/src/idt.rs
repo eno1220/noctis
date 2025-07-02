@@ -1,4 +1,4 @@
-use crate::{error, gdt, info, task, timer, x86};
+use crate::{error, gdt, task, timer, x86};
 use alloc::boxed::Box;
 use bitfield_struct::bitfield;
 use core::arch::{asm, global_asm, naked_asm};
@@ -170,7 +170,7 @@ unsafe fn interrupt_handler_common() {
 extern "C" fn check_and_schedule() {
     let current = task::context();
     if current.ticks.load(core::sync::atomic::Ordering::Relaxed) >= 3 {
-        task::schedule();
+        task::switch();
     }
 }
 
@@ -202,7 +202,7 @@ extern "C" fn interrupt_handler(stack_frame: &InterruptStackFrame) {
         }
         // Local timer interrupt
         42 => {
-            info!("Local timer interrupt");
+            //info!("Local timer interrupt");
             timer::increment_count();
             timer::notify_end_of_interrupt();
             task::tick();
@@ -316,7 +316,7 @@ impl Idt {
         );
         entries[42] = IdtDescriptor::create(
             segment_selector,
-            1,
+            0,
             IDT_GATE_TYPE_INTGATE,
             IDT_DPL_0,
             interrupt_entry_42,

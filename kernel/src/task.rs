@@ -1,13 +1,10 @@
 use crate::{
     info,
     spin::{SpinGuard, SpinLock},
+    x86,
 };
 
-use alloc::{
-    boxed::Box,
-    sync::Arc,
-    vec::Vec,
-};
+use alloc::{boxed::Box, sync::Arc, vec::Vec};
 use core::{
     arch::naked_asm,
     ops::AddAssign,
@@ -44,7 +41,7 @@ enum TaskState {
 }
 
 #[repr(C)]
-#[derive(Default)]
+#[derive(Default, Debug, Clone, Copy)]
 struct TaskContext {
     rbx: u64,
     rbp: u64,
@@ -58,14 +55,21 @@ struct TaskContext {
 
 impl TaskContext {
     fn setup_initial_call(&mut self, kstack: &KStack, func: fn()) {
-        let mut stack_top = kstack.as_ref().get_ref().as_ptr() as *mut u8;
+        let mut stack_top = kstack.as_ref().get_ref().as_ptr() as *mut u64;
         unsafe {
             stack_top = stack_top.add(KERNEL_STACK_SIZE);
-            stack_top = stack_top.sub(core::mem::size_of::<usize>());
-            stack_top.cast::<usize>().write(func as usize);
+            stack_top = push_stack(stack_top, func as u64);
         }
         self.rsp = stack_top as u64;
         self.rflags = 0x202;
+    }
+}
+
+unsafe fn push_stack(mut rsp: *mut u64, value: u64) -> *mut u64 {
+    unsafe {
+        rsp = rsp.sub(1);
+        rsp.write(value);
+        rsp
     }
 }
 
@@ -94,8 +98,10 @@ impl Task {
 
 #[unsafe(naked)]
 #[unsafe(no_mangle)]
-unsafe fn switch_inner(current: *mut TaskContext, next: *mut TaskContext) {
+unsafe extern "sysv64" fn switch_inner(current: *mut TaskContext, next: *mut TaskContext) {
     naked_asm!(
+        "lea rax, [rip + 2f]",
+        "push rax",
         "pushfq",
         "pop rax",
         "mov [rdi + 0x38], rax",
@@ -117,17 +123,14 @@ unsafe fn switch_inner(current: *mut TaskContext, next: *mut TaskContext) {
         "push rax",
         "popfq",
         "ret",
+        "2:",
+        "ret",
     )
-}
-
-#[unsafe(naked)]
-unsafe fn switch(current: *mut TaskContext, next: *mut TaskContext) {
-    naked_asm!("push 2f", "jmp switch_inner", "2:", "ret",)
 }
 
 pub struct CpuContextBlock {
     pub ticks: AtomicUsize,
-    current_task: SpinLock<Option<Arc<SpinLock<Task>>>>,
+    pub current_task: SpinLock<Option<Arc<SpinLock<Task>>>>,
 }
 
 impl CpuContextBlock {
@@ -145,7 +148,6 @@ pub fn context() -> &'static CpuContextBlock {
     &CPU_CONTEXT_BLOCK
 }
 
-//static CPU_CONTEXT_BLOCK: CpuContextBlock = CpuContextBlock::new();
 // Taskは無限ループして終了することはないものとして扱う
 static TASKS: SpinLock<Vec<Arc<SpinLock<Task>>>> = SpinLock::new(Vec::new());
 
@@ -176,7 +178,9 @@ pub fn init() {
     *context.current_task.lock() = Some(Arc::clone(&task_lock));
 }
 
-pub fn schedule() {
+pub fn switch() {
+    x86::disable_interrupts();
+
     let percpu = context();
     percpu.ticks.store(0, Ordering::Relaxed);
 
@@ -224,10 +228,21 @@ pub fn schedule() {
         prev_task_guard.running = false;
         next_task_guard.running = true;
 
+        let current_ctx = &mut prev_task_guard.context as *mut TaskContext;
+        let next_ctx = &mut next_task_guard.context as *mut TaskContext;
+
+        // 強引にロックを解除してからコンテキストスイッチを行う
+        // TODO: FIX
+        drop(prev_task_guard);
+        drop(next_task_guard);
+
+        // Save the current task context
         unsafe {
-            switch(&mut prev_task_guard.context, &mut next_task_guard.context);
+            switch_inner(current_ctx, next_ctx);
         }
     }
+
+    x86::enable_interrupts();
 }
 
 pub fn spawn(func: fn()) {

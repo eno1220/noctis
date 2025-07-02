@@ -88,7 +88,7 @@ extern "C" fn kernel_main(heap_base: u64, heap_size: u64) -> ! {
     timer::init_timer();
     info!("Timer initialized!");
 
-	x86::disable_interrupts();
+    x86::disable_interrupts();
     task::init();
     task::spawn(task_a);
     task::spawn(task_b);
