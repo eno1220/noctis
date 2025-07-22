@@ -18,6 +18,7 @@ mod spin;
 mod task;
 mod timer;
 mod uart;
+mod wasm;
 mod x86;
 
 #[cfg(test)]
@@ -92,6 +93,7 @@ extern "C" fn kernel_main(heap_base: u64, heap_size: u64) -> ! {
     task::init(pt);
     task::spawn(task_a);
     task::spawn(task_b);
+    task::spawn(wasm::wasm_entry);
     x86::enable_interrupts();
 
     #[cfg(test)]

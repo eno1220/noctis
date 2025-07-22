@@ -1,4 +1,5 @@
 // Reference: 「詳解Rustアトミック操作とロック」(オライリー・ジャパン ISBN978-4-8144-0051-5)
+use core::arch::asm;
 use core::cell::UnsafeCell;
 use core::ops::{Deref, DerefMut};
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -20,6 +21,7 @@ impl<T> SpinLock<T> {
         while self.locked.swap(true, Ordering::Acquire) {
             core::hint::spin_loop();
         }
+        unsafe { asm!("cli") } // TODO: fix ロックの取得-`cli`までの間に割り込まれる可能性があり不十分
         SpinGuard { lock: self }
     }
 }
@@ -47,6 +49,7 @@ impl<T> DerefMut for SpinGuard<'_, T> {
 impl<'a, T> Drop for SpinGuard<'a, T> {
     fn drop(&mut self) {
         self.lock.locked.store(false, Ordering::Release);
+        unsafe { asm!("sti") }
     }
 }
 
