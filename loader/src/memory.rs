@@ -68,7 +68,7 @@ impl MemoryMap {
         self.map_key
     }
 
-	#[allow(dead_code)]
+    #[allow(dead_code)]
     pub fn iter(&self) -> MemoryMapIterator {
         MemoryMapIterator {
             map: self,
