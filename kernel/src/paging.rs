@@ -281,6 +281,19 @@ impl PageTable {
         let num_pages = (size.as_usize() + PAGE_SIZE - 1) / PAGE_SIZE; // Or panic if size is not page-aligned...?
         self.map(virt_start, phys_start, num_pages, attr)
     }
+
+	// 現時点ではカーネル空間のみ存在し、idleタスクのページテーブルを複製する
+	// そのため再帰的な複製は行わず、単純にPML4のエントリをコピーする
+	pub fn duplicate_kernel(&self) -> Pin<Box<PageTable>> {
+		let mut new_table = Box::pin(PageTable::new());
+		for (i, entry) in self.pml4.entries.iter().enumerate() {
+			if entry.is_present() {
+				let new_entry = &mut new_table.as_mut().pml4.entries[i];
+				*new_entry = *entry;
+			}
+		}
+		new_table
+	}
 }
 
 pub fn init_paging() -> Pin<Box<PageTable>> {

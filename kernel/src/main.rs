@@ -78,7 +78,7 @@ extern "C" fn kernel_main(heap_base: u64, heap_size: u64) -> ! {
     allocator::init_allocator(heap_base as usize, heap_size as usize);
     info!("Allocator initialized!");
 
-    let _ = paging::init_paging();
+    let pt = paging::init_paging();
     info!("Paging initialized!");
 
     let _gdt = gdt::init_gdt();
@@ -89,7 +89,7 @@ extern "C" fn kernel_main(heap_base: u64, heap_size: u64) -> ! {
     info!("Timer initialized!");
 
     x86::disable_interrupts();
-    task::init();
+    task::init(pt);
     task::spawn(task_a);
     task::spawn(task_b);
     x86::enable_interrupts();

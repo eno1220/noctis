@@ -1,16 +1,10 @@
 use crate::{
-    info,
-    spin::{SpinGuard, SpinLock},
-    x86,
+    info, paging::PageTable, spin::{SpinGuard, SpinLock}, x86
 };
 
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
 use core::{
-    arch::naked_asm,
-    ops::AddAssign,
-    pin::Pin,
-    sync::atomic::{AtomicU32, AtomicUsize, Ordering},
-    u32,
+    arch::naked_asm, cell::RefCell, ops::AddAssign, pin::Pin, sync::atomic::{AtomicU32, AtomicUsize, Ordering}, u32
 };
 
 const KERNEL_STACK_SIZE: usize = 4096;
@@ -80,6 +74,7 @@ pub struct Task {
     state: TaskState,
     running: bool,
     context: TaskContext,
+	page_table: RefCell<Option<Pin<Box<PageTable>>>>, // 果たしてこれでいいのか...?
     kernel_stack: Option<KStack>,
 }
 
@@ -91,6 +86,7 @@ impl Task {
             state: TaskState::Stopped,
             running: false,
             context: TaskContext::default(),
+			page_table: RefCell::new(None),
             kernel_stack: None,
         }
     }
@@ -166,10 +162,11 @@ pub fn tasks() -> SpinGuard<'static, Vec<Arc<SpinLock<Task>>>> {
     TASKS.lock()
 }
 
-pub fn init() {
+pub fn init(page_table: Pin<Box<PageTable>>) {
     let mut task = Task::new();
     task.state = TaskState::Runnable;
     task.running = true;
+	task.page_table.replace(Some(page_table));
 
     let task_lock = Arc::new(SpinLock::new(task));
     TASKS.lock().push(task_lock.clone());
@@ -228,6 +225,8 @@ pub fn switch() {
         prev_task_guard.running = false;
         next_task_guard.running = true;
 
+		x86::write_cr3(&*next_task_guard.page_table.borrow().as_ref().unwrap().as_ref() as *const PageTable as usize);
+
         let current_ctx = &mut prev_task_guard.context as *mut TaskContext;
         let next_ctx = &mut next_task_guard.context as *mut TaskContext;
 
@@ -247,6 +246,9 @@ pub fn switch() {
 
 pub fn spawn(func: fn()) {
     let kstack = Pin::from(Box::new([0u8; KERNEL_STACK_SIZE]));
+	// spawn関数は、idleタスク実行中に呼び出されるため、current_task()はidleタスクを指している
+	// spawn関数はunsafeであるべきじゃね?
+	let page_table = PageTable::duplicate_kernel(current_task().lock().page_table.borrow().as_ref().unwrap());
     let task_lock = Arc::new(SpinLock::new(Task::new()));
 
     TASKS.lock().push(task_lock.clone());
@@ -255,6 +257,7 @@ pub fn spawn(func: fn()) {
         task.context.setup_initial_call(&kstack, func);
         task.kernel_stack = Some(kstack);
         task.state = TaskState::Runnable;
+		task.page_table.replace(Some(page_table));
         info!(
             "taskid: {:#}, rsp: {:#x}",
             task.pid.to_u32(),
