@@ -1,4 +1,3 @@
-use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::print;
@@ -46,19 +45,49 @@ fn run(instructions: &[Instruction]) {
         pc += 1;
     }
 
-    print!("{:#}", stack.pop().unwrap());
+    print!("[{:#}]", stack.pop().unwrap());
 }
 
 pub fn wasm_entry() {
-    loop {
-        let instructions = vec![
+    let mut idx = 0;
+    let patterns: [&[Instruction]; 5] = [
+        &[
             Instruction::Const(21),
             Instruction::Const(2),
             Instruction::Mul,
             Instruction::End,
-        ];
+        ],
+        &[
+            Instruction::Const(10),
+            Instruction::Const(5),
+            Instruction::Add,
+            Instruction::End,
+        ],
+        &[
+            Instruction::Const(100),
+            Instruction::Const(4),
+            Instruction::Div,
+            Instruction::End,
+        ],
+        &[
+            Instruction::Const(7),
+            Instruction::Const(3),
+            Instruction::Sub,
+            Instruction::End,
+        ],
+        &[
+            Instruction::Const(2),
+            Instruction::Const(3),
+            Instruction::Const(4),
+            Instruction::Add,
+            Instruction::Mul,
+            Instruction::End,
+        ],
+    ];
 
-        run(&instructions);
+    loop {
+        run(patterns[idx]);
+        idx = (idx + 1) % 5;
 
         unsafe { asm!("hlt") }
     }
