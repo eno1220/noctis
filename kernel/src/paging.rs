@@ -278,7 +278,7 @@ impl PageTable {
         size: MSize,
         attr: PageTableAttr,
     ) -> Result<(), &'static str> {
-        let num_pages = (size.as_usize() + PAGE_SIZE - 1) / PAGE_SIZE; // Or panic if size is not page-aligned...?
+        let num_pages = size.as_usize().div_ceil(PAGE_SIZE); // Or panic if size is not page-aligned...?
         self.map(virt_start, phys_start, num_pages, attr)
     }
 

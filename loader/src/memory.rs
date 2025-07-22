@@ -68,6 +68,7 @@ impl MemoryMap {
         self.map_key
     }
 
+	#[allow(dead_code)]
     pub fn iter(&self) -> MemoryMapIterator {
         MemoryMapIterator {
             map: self,
@@ -76,6 +77,7 @@ impl MemoryMap {
     }
 }
 
+#[allow(dead_code)]
 pub struct MemoryMapIterator<'a> {
     map: &'a MemoryMap,
     offset: usize,

@@ -189,8 +189,8 @@ fn main() {
 
     println!("Hello, world!");
 
-    let memory_map = memory::MemoryMap::new();
-    /*for desc in memory_map.iter() {
+    /*let memory_map = memory::MemoryMap::new();
+    for desc in memory_map.iter() {
         println!(
             "Physical Start: {:#018x}, Number of Pages: {:#07x}, Type: {:?}",
             desc.physical_start, desc.number_of_pages, desc.r#type
