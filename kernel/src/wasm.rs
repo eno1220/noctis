@@ -4,11 +4,14 @@ use alloc::vec::Vec;
 use crate::print;
 use core::arch::asm;
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 enum Instruction {
     Const(i32),
     LocalGet(u32),
     I32Add,
+	I32Mul,
+	Call(u32),
     End,
 }
 
@@ -80,7 +83,7 @@ impl Runtime {
         }
     }
 
-    fn invoke(&mut self, func: InternalFuncInst) -> Option<i32> {
+    fn push_frame(&mut self, func: &InternalFuncInst){
         let bottom = self.stack.len() - func.func_type.params.len();
         let mut locals = self.stack.split_off(bottom);
 
@@ -95,18 +98,24 @@ impl Runtime {
             arity,
             locals,
         };
+
         self.call_stack.push(frame);
-
-        self.execute();
-
-        if arity > 0 {
-            let Some(val) = self.stack.pop() else {
-                panic!("not found return value")
-            };
-            return Some(val);
-        }
-        None
     }
+
+	fn invoke(&mut self, func: InternalFuncInst) -> Option<i32> {
+		let arity = func.func_type.results.len();
+
+		self.push_frame(&func);
+		self.execute();
+
+		if arity > 0 {
+			let Some(val) = self.stack.pop() else {
+				panic!("not found return value")
+			};
+			return Some(val);
+		}
+		None
+	}
 
     fn execute(&mut self) {
         loop {
@@ -126,6 +135,12 @@ impl Runtime {
                     };
                     self.stack.push(lhs + rhs);
                 }
+				Instruction::I32Mul => {
+					let (Some(rhs), Some(lhs)) = (self.stack.pop(), self.stack.pop()) else {
+						panic!("not found any value in the stack")
+					};
+					self.stack.push(lhs * rhs);
+				}
                 Instruction::Const(val) => {
                     self.stack.push(*val);
                 }
@@ -135,6 +150,14 @@ impl Runtime {
                     };
                     self.stack.push(*val)
                 }
+				Instruction::Call(idx) => {
+					let Some(func) = self.store.funcs.get(*idx as usize) else {
+						panic!("not found func")
+					};
+					match func {
+						FuncInst::Internal(func) => self.push_frame(&func.clone()),
+					}
+				}
                 Instruction::End => {
                     let Some(frame) = self.call_stack.pop() else {
                         panic!("not found call frame")
@@ -161,27 +184,59 @@ pub fn stack_unwind(stack: &mut Vec<i32>, sp: usize, arity: usize) {
 
 pub fn wasm_entry() {
     let wasm = Store {
-        funcs: vec![FuncInst::Internal(InternalFuncInst {
-            func_type: FuncType {
-                params: vec![ValueType::I32, ValueType::I32],
-                results: vec![ValueType::I32],
-            },
-            code: Func {
-                locals: vec![],
-                body: vec![
-                    Instruction::LocalGet(0),
-                    Instruction::LocalGet(1),
-                    Instruction::I32Add,
-                    Instruction::Const(40),
-                    Instruction::I32Add,
-                    Instruction::End,
-                ],
-            },
-        })],
+        funcs: vec![
+			FuncInst::Internal(InternalFuncInst {
+				func_type: FuncType {
+					params: vec![ValueType::I32, ValueType::I32],
+					results: vec![ValueType::I32],
+				},
+				code: Func {
+					locals: vec![],
+					body: vec![
+						Instruction::LocalGet(0),
+						Instruction::LocalGet(1),
+						Instruction::I32Add,
+						Instruction::End,
+					],
+				},
+			}),
+			FuncInst::Internal(InternalFuncInst {
+				func_type: FuncType {
+					params: vec![ValueType::I32, ValueType::I32],
+					results: vec![ValueType::I32],
+				},
+				code: Func {
+					locals: vec![],
+					body: vec![
+						Instruction::LocalGet(0),
+						Instruction::LocalGet(1),
+						Instruction::I32Mul,
+						Instruction::End,
+					],
+				},
+			}),
+			FuncInst::Internal(InternalFuncInst {
+				func_type: FuncType {
+					params: vec![ValueType::I32, ValueType::I32, ValueType::I32],
+					results: vec![ValueType::I32],
+				},
+				code: Func {
+					locals: vec![],
+					body: vec![
+						Instruction::LocalGet(0),
+						Instruction::LocalGet(1),
+						Instruction::Call(0),
+						Instruction::LocalGet(2),
+						Instruction::Call(1),
+						Instruction::End,
+					],
+				},
+			}),
+		],
     };
     let mut runtime = Runtime::new(wasm);
     loop {
-        if let Some(res) = runtime.call(0, vec![10, 20]) {
+        if let Some(res) = runtime.call(2, vec![5, 10, 20]) {
             print!("{:#}", res);
         };
 
