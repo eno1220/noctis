@@ -137,6 +137,7 @@ mod symbol_offsets {
 #[cfg(not(test))]
 #[panic_handler]
 fn panic(panic_info: &PanicInfo) -> ! {
+    unsafe { asm!("cli") }
     error!("!!!!! Kernel panic !!!!!");
     error!("Panic info: {:?}", panic_info);
     loop {
