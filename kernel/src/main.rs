@@ -100,9 +100,7 @@ extern "C" fn kernel_main(heap_base: u64, heap_size: u64) -> ! {
     test_main();
 
     loop {
-        unsafe {
-            asm!("hlt");
-        }
+        unsafe { asm!("hlt") }
     }
 }
 

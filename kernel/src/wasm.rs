@@ -1,5 +1,5 @@
 use alloc::vec;
-use alloc::vec::Vec;
+use alloc::{string::String, vec::Vec};
 
 use crate::print;
 use core::arch::asm;
@@ -280,44 +280,87 @@ fn get_end_addr(insts: &[Instruction], pc: usize) -> usize {
 }
 
 pub fn wasm_entry() {
-    // フィボナッチ数列の計算
-    let wasm = Store {
-        funcs: vec![FuncInst::Internal(InternalFuncInst {
-            func_type: FuncType {
-                params: vec![ValueType::I32],
-                results: vec![ValueType::I32],
-            },
-            code: Func {
-                locals: vec![],
-                body: vec![
-                    Instruction::LocalGet(0), // n
-                    Instruction::Const(2),    // 2
-                    Instruction::I32Lts,      // n < 2
-                    Instruction::If(Block {
-                        block_type: BlockType::Void,
-                    }),
-                    Instruction::LocalGet(0), // n
-                    Instruction::Return,      // return n
-                    Instruction::End,
-                    Instruction::LocalGet(0), // n
-                    Instruction::Const(1),
-                    Instruction::I32Sub,      // n - 1
-                    Instruction::Call(0),     // fib(n-1)
-                    Instruction::LocalGet(0), // n
-                    Instruction::Const(2),
-                    Instruction::I32Sub,  // n - 2
-                    Instruction::Call(0), //fib(n-2)
-                    Instruction::I32Add,  // fib(n-1) + fib(n-2)
-                    Instruction::Return,
-                ],
-            },
-        })],
-    };
-    let mut runtime = Runtime::new(wasm);
+    let size = 15; // ダイヤの高さ（奇数）
     loop {
-        if let Some(res) = runtime.call(0, vec![8]) {
-            print!("{:#}", res);
+        let wasm_space = Store {
+            funcs: vec![FuncInst::Internal(InternalFuncInst {
+                func_type: FuncType {
+                    params: vec![ValueType::I32],  // n
+                    results: vec![ValueType::I32], // 空白数
+                },
+                code: Func {
+                    locals: vec![],
+                    body: vec![
+                        // if n < size/2: return size/2 - n
+                        Instruction::LocalGet(0), // n
+                        Instruction::Const(size as i32 / 2),
+                        Instruction::I32Lts,
+                        Instruction::If(Block {
+                            block_type: BlockType::Void,
+                        }),
+                        Instruction::Const(size as i32 / 2),
+                        Instruction::LocalGet(0),
+                        Instruction::I32Sub,
+                        Instruction::Return,
+                        Instruction::End,
+                        // else: return n - size/2
+                        Instruction::LocalGet(0),
+                        Instruction::Const(size as i32 / 2),
+                        Instruction::I32Sub,
+                        Instruction::Return,
+                    ],
+                },
+            })],
         };
+        let wasm_star = Store {
+            funcs: vec![FuncInst::Internal(InternalFuncInst {
+                func_type: FuncType {
+                    params: vec![ValueType::I32],  // n
+                    results: vec![ValueType::I32], // 星数
+                },
+                code: Func {
+                    locals: vec![],
+                    body: vec![
+                        // if n < size/2: return 2*n + 1
+                        Instruction::LocalGet(0),
+                        Instruction::Const(size as i32 / 2),
+                        Instruction::I32Lts,
+                        Instruction::If(Block {
+                            block_type: BlockType::Void,
+                        }),
+                        Instruction::LocalGet(0),
+                        Instruction::Const(2),
+                        Instruction::I32Mul,
+                        Instruction::Const(1),
+                        Instruction::I32Add,
+                        Instruction::Return,
+                        Instruction::End,
+                        // else: return size - 2*(n - size/2)
+                        Instruction::Const(size as i32),
+                        Instruction::Const(2),
+                        Instruction::LocalGet(0),
+                        Instruction::Const(size as i32 / 2),
+                        Instruction::I32Sub,
+                        Instruction::I32Mul,
+                        Instruction::I32Sub,
+                        Instruction::Return,
+                    ],
+                },
+            })],
+        };
+
+        let mut runtime_space = Runtime::new(wasm_space);
+        let mut runtime_star = Runtime::new(wasm_star);
+
+        print!("\n");
+        for n in 0..size {
+            let space = runtime_space.call(0, vec![n]).unwrap_or(0);
+            let star = runtime_star.call(0, vec![n]).unwrap_or(0);
+            let space_str: String = core::iter::repeat(' ').take(space as usize).collect();
+            let star_str: String = core::iter::repeat('*').take(star as usize).collect();
+            print!("{}{}\n", space_str, star_str);
+        }
+        print!("\n");
 
         unsafe { asm!("hlt") }
     }
