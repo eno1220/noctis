@@ -70,8 +70,8 @@ make_read_reg!(read_rsi, "rsi");
 make_read_reg!(read_rdi, "rdi");
 make_read_reg!(read_rbp, "rbp");
 make_read_reg!(read_rsp, "rsp");
-make_read_reg!(read_r8,  "r8");
-make_read_reg!(read_r9,  "r9");
+make_read_reg!(read_r8, "r8");
+make_read_reg!(read_r9, "r9");
 make_read_reg!(read_r10, "r10");
 make_read_reg!(read_r11, "r11");
 make_read_reg!(read_r12, "r12");
@@ -85,15 +85,15 @@ make_read_reg!(read_cr4, "cr4");
 
 #[allow(dead_code)]
 pub fn read_rip() -> usize {
-	let rip: usize;
-	unsafe {
-		asm!(
-			"lea {}, [rip]",
-			out(reg) rip,
-			options(nostack),
-		);
-	}
-	rip
+    let rip: usize;
+    unsafe {
+        asm!(
+            "lea {}, [rip]",
+            out(reg) rip,
+            options(nostack),
+        );
+    }
+    rip
 }
 
 #[allow(dead_code)]
