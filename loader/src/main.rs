@@ -102,9 +102,10 @@ fn read_kernel_file(
 }
 
 fn get_image_base() -> usize {
-	let bt = uefi::env::boot_services().unwrap().as_ptr() as *const efi::BootServices;
+    let bt = uefi::env::boot_services().unwrap().as_ptr() as *const efi::BootServices;
 
-	let mut loaded_image_protocol: *mut efi::protocols::loaded_image::Protocol = core::ptr::null_mut();
+    let mut loaded_image_protocol: *mut efi::protocols::loaded_image::Protocol =
+        core::ptr::null_mut();
     status_to_result(unsafe {
         #[allow(const_item_mutation)]
         ((*bt).locate_protocol)(
@@ -116,7 +117,7 @@ fn get_image_base() -> usize {
     })
     .expect("Failed to locate Loaded Image Protocol");
 
-	unsafe { (*loaded_image_protocol).image_base as usize }
+    unsafe { (*loaded_image_protocol).image_base as usize }
 }
 
 fn load_to_memory(kernel_ref: Vec<u8>, kernel_file_size: usize) -> usize {
@@ -226,7 +227,7 @@ fn main() {
         );
     }*/
 
-	println!("Image Base: {:#x}", get_image_base());
+    println!("Image Base: {:#x}", get_image_base());
 
     let root_dir = open_root_dir();
     let (kernel_file, mut kernel_file_size) = open_kernel_file(root_dir);

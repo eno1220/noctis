@@ -1,4 +1,5 @@
 use core::fmt::Debug;
+use core::num;
 use core::{arch::asm, fmt, mem::MaybeUninit, pin::Pin};
 
 #[repr(transparent)]
@@ -35,7 +36,14 @@ pub struct VirtAddr(usize);
 
 impl VirtAddr {
     pub fn new(addr: usize) -> Self {
-        VirtAddr(addr)
+        VirtAddr(Self::canonicalize(addr as u64) as usize)
+    }
+    fn canonicalize(addr: u64) -> u64 {
+        if addr & (1 << 47) != 0 {
+            addr | 0xFFFF_0000_0000_0000
+        } else {
+            addr & 0x0000_FFFF_FFFF_FFFF
+        }
     }
     pub fn as_usize(&self) -> usize {
         self.0
@@ -62,6 +70,10 @@ impl VirtAddr {
     }
     pub fn pt_index(&self) -> usize {
         self.nth_level_table_index(1)
+    }
+
+    pub fn add(&self, offset: usize) -> Self {
+        VirtAddr::new(self.0.wrapping_add(offset))
     }
 }
 
@@ -177,13 +189,6 @@ impl PageTableEntry {
         if paddr.as_usize() & !PTE_ATTR_MASK as usize != 0 {
             return Err("Physical address must be page-aligned");
         }
-        let mut addr = paddr.as_u64();
-        let sign_bit = (addr >> 51) & 1;
-        if sign_bit == 1 {
-            addr |= 0xFFF8000000000000;
-        } else {
-            addr &= !0xFFF8000000000000;
-        }
         self.value = paddr.as_u64() | (attr as u64);
         Ok(())
     }
@@ -261,21 +266,21 @@ impl PageTable {
             node = node.entries[index].get_or_alloc_next_level_table()?;
         }
         // TODO: VirtAddr, PhysAddrに対して四則演算用のtraitを実装する
-        let mut vaddr = virt_start.as_usize();
-        let mut paddr = phys_start.as_usize();
+        let mut vaddr = virt_start;
+        let mut paddr = phys_start;
         let start_index = virt_start.pt_index();
         for i in 0..num_pages {
             let index = (start_index + i) % 512;
             if index == 0 && i != 0 {
                 node = &mut self.pml4;
                 for level in (2..=4).rev() {
-                    let index = VirtAddr::new(vaddr).nth_level_table_index(level);
+                    let index = vaddr.nth_level_table_index(level);
                     node = node.entries[index].get_or_alloc_next_level_table()?;
                 }
             }
-            node.entries[index].set_entry(PhysAddr::new(paddr), attr)?;
-            vaddr += PAGE_SIZE;
-            paddr += PAGE_SIZE;
+            node.entries[index].set_entry(paddr, attr)?;
+            vaddr = vaddr.add(PAGE_SIZE);
+            paddr = PhysAddr::new(paddr.as_usize() + PAGE_SIZE);
         }
         Ok(())
     }
@@ -350,5 +355,5 @@ pub fn init_early_paging(kernel_start_phys: PhysAddr, kernel_start_virt: VirtAdd
             PageTableAttr::ReadWriteExecuteKernel,
         )
         .expect("failed paging");
-    write_cr3(read_cr3());
+    write_cr3(&mut page_table.pml4 as *mut _ as usize);
 }

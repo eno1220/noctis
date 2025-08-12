@@ -338,6 +338,6 @@ pub fn init_paging() -> Pin<Box<PageTable>> {
             PageTableAttr::ReadWriteKernelIO,
         )
         .expect("Failed to create kernel I/O mapping");
-    write_cr3(&*page_table as *const PageTable as usize);
+    write_cr3(&mut page_table.pml4 as *mut _ as usize);
     page_table
 }
