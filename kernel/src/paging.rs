@@ -73,7 +73,7 @@ impl VirtAddr {
         self.nth_level_table_index(1)
     }
 
-	pub fn add(&self, offset: usize) -> Self {
+    pub fn add(&self, offset: usize) -> Self {
         VirtAddr::new(self.0.wrapping_add(offset))
     }
 }
@@ -111,6 +111,8 @@ impl From<usize> for MSize {
 
 // TODO: メモリレイアウト由来のアドレスを別ファイルへ移動する
 pub const KERNEL_VADDR_BASE: usize = 0xFFFFFFFF80000000;
+const KERNEL_DIRECT_START: usize = 0xffff888000000000;
+const KERNEL_DIRECT_SIZE: usize = 0x8000000000;
 const PAGE_SIZE: usize = 4096; // 4 KiB
 
 const PTE_ATTR_MASK: u64 = 0x7FFF_FFFF_FFFF_F000; // Mask for attributes
@@ -120,6 +122,7 @@ const PTE_ATTR_WRITABLE: u64 = 1 << 1; // Page is writable
 const PTE_ATTR_USER_ACCESSIBLE: u64 = 1 << 2; // Page is accessible by user mode
 const PTE_ATTR_WRITE_THROUGH: u64 = 1 << 3; // Write-through caching
 const PTE_ATTR_CACHE_DISABLED: u64 = 1 << 4; // Cache disabled
+const PTE_ATTR_HUGE_PAGE: u64 = 1 << 7; // Huge Page
 const PTE_ATTR_NOT_EXECUTABLE: u64 = 1 << 63; // Page is **not** executable
 
 #[repr(u64)]
@@ -131,6 +134,8 @@ pub enum PageTableAttr {
     ReadKernel = PTE_ATTR_PRESENT | PTE_ATTR_NOT_EXECUTABLE,
     ReadWriteExecuteKernel = PTE_ATTR_PRESENT | PTE_ATTR_WRITABLE,
     ReadWriteKernel = PTE_ATTR_PRESENT | PTE_ATTR_WRITABLE | PTE_ATTR_NOT_EXECUTABLE,
+    ReadWriteKernel1GiB =
+        PTE_ATTR_PRESENT | PTE_ATTR_WRITABLE | PTE_ATTR_NOT_EXECUTABLE | PTE_ATTR_HUGE_PAGE,
     ReadWriteKernelIO = PTE_ATTR_PRESENT
         | PTE_ATTR_WRITABLE
         | PTE_ATTR_WRITE_THROUGH
@@ -166,6 +171,9 @@ impl PageTableEntry {
     fn is_user_accessible(&self) -> bool {
         self.get_bit(2)
     }
+    fn is_huge(&self) -> bool {
+        self.get_bit(7)
+    }
     fn is_executable(&self) -> bool {
         !self.get_bit(63)
     }
@@ -173,12 +181,13 @@ impl PageTableEntry {
     fn format(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "PageEntry(value: {:#x}, present: {}, writable: {}, user_accessible: {}, executable: {})",
+            "PageEntry(value: {:#x}, present: {}, writable: {}, user_accessible: {}, executable: {}, huge {})",
             self.value,
             self.is_present(),
             self.is_writable(),
             self.is_user_accessible(),
-            self.is_executable()
+            self.is_executable(),
+            self.is_huge()
         )
     }
 
@@ -260,6 +269,22 @@ impl PageTable {
             "Physical address must be page-aligned"
         );
 
+        if matches!(attr, PageTableAttr::ReadWriteKernel1GiB)
+            && virt_start.as_usize() % (1 << 30) == 0
+            && phys_start.as_usize() % (1 << 30) == 0
+            && num_pages % (1 << 18) == 0
+        {
+            let pml4_index = virt_start.pml4_index();
+            let pdpt_index = virt_start.pdpt_index();
+            let pml4 = &mut self.pml4;
+            let pdpt = pml4.entries[pml4_index].get_or_alloc_next_level_table()?;
+            for i in 0..(num_pages / (1 << 18)) {
+                let entry = &mut pdpt.entries[pdpt_index + i];
+                entry.set_entry(PhysAddr(phys_start.as_usize() + i * (1 << 30)), attr)?;
+            }
+            return Ok(());
+        }
+
         let mut node = &mut self.pml4;
         for level in (2..=4).rev() {
             let index = virt_start.nth_level_table_index(level);
@@ -315,6 +340,15 @@ pub fn init_paging() -> Pin<Box<PageTable>> {
         "Paging initialized with PML4 at {:p}",
         &*page_table as *const PageTable
     );
+    page_table
+        .as_mut()
+        .create_mapping(
+            VirtAddr::new(KERNEL_DIRECT_START),
+            PhysAddr::new(0),
+            MSize::new(KERNEL_DIRECT_SIZE),
+            PageTableAttr::ReadWriteKernel1GiB,
+        )
+        .expect("Failed to create direct mapping");
     page_table
         .as_mut()
         .create_mapping(
