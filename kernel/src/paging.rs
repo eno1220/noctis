@@ -111,7 +111,7 @@ impl From<usize> for MSize {
 
 // TODO: メモリレイアウト由来のアドレスを別ファイルへ移動する
 pub const KERNEL_VADDR_BASE: usize = 0xFFFFFFFF80000000;
-const KERNEL_DIRECT_START: usize = 0xffff888000000000;
+pub const KERNEL_DIRECT_START: usize = 0xffff888000000000;
 const KERNEL_DIRECT_SIZE: usize = 0x8000000000;
 const PAGE_SIZE: usize = 4096; // 4 KiB
 
@@ -206,17 +206,25 @@ impl PageTableEntry {
         if !self.is_present() {
             None
         } else {
-            Some(unsafe { &mut *(self.paddr().as_usize() as *mut PageTableNode) })
+            Some(unsafe {
+                &mut *((self.paddr().as_usize() + KERNEL_DIRECT_START) as *mut PageTableNode)
+            })
         }
     }
     fn alloc_next_level_table(&mut self) -> Result<&mut Self, &'static str> {
         if self.is_present() {
             Err("Next level table is already allocated")
         } else {
-            // 現在は恒等マッピングを仮定しているためこれで良いが、
-            // 将来的には物理アドレスを割り当てる必要がある
+            // TODO: 物理メモリを取得するアロケータを実装し、そのアロケータからメモリを確保する
             let next: Box<PageTableNode> = Box::new(unsafe { MaybeUninit::zeroed().assume_init() });
-            self.value = Box::into_raw(next) as u64 | PageTableAttr::ReadWriteExecuteKernel as u64;
+            // TODO: virt_to_phys関数を実装する
+            // TODO: u64とusizeをまとめる
+            let phys_addr = Box::into_raw(next) as usize - KERNEL_DIRECT_START;
+            debug_assert!(
+                phys_addr <= 0x0000_FFFFFFFFFFFF,
+                "Physical address exceeds valid range"
+            );
+            self.value = phys_addr as u64 | PageTableAttr::ReadWriteExecuteKernel as u64;
             Ok(self)
         }
     }
@@ -352,15 +360,6 @@ pub fn init_paging() -> Pin<Box<PageTable>> {
     page_table
         .as_mut()
         .create_mapping(
-            VirtAddr::new(0x0000),
-            PhysAddr::new(0x0000),
-            MSize::new(1024 * 1024 * 1024), // 1 GiB (QEMU起動時のメモリサイズに合わせる)
-            PageTableAttr::ReadWriteKernel,
-        )
-        .expect("Failed to create initial mapping");
-    page_table
-        .as_mut()
-        .create_mapping(
             VirtAddr::new(symbol_offsets::__text()),
             PhysAddr::new(symbol_offsets::__text() - KERNEL_VADDR_BASE),
             MSize::new(symbol_offsets::__text_end() - symbol_offsets::__text()),
@@ -379,12 +378,21 @@ pub fn init_paging() -> Pin<Box<PageTable>> {
     page_table
         .as_mut()
         .create_mapping(
+            VirtAddr::new(symbol_offsets::__data()),
+            PhysAddr::new(symbol_offsets::__data() - KERNEL_VADDR_BASE),
+            MSize::new(symbol_offsets::__bss_end() - symbol_offsets::__data()),
+            PageTableAttr::ReadWriteKernel,
+        )
+        .expect("Failed to .data .bss area mapping");
+    page_table
+        .as_mut()
+        .create_mapping(
             VirtAddr::new(0xFEE0_0000),
             PhysAddr::new(0xFEE0_0000),
             MSize::new(0x1000), // 4 KiB for I/O APIC
             PageTableAttr::ReadWriteKernelIO,
         )
         .expect("Failed to create kernel I/O mapping");
-    write_cr3(&mut page_table.pml4 as *mut _ as usize);
+    write_cr3(&mut page_table.pml4 as *mut _ as usize - KERNEL_DIRECT_START);
     page_table
 }

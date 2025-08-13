@@ -1,6 +1,6 @@
 use crate::{
     info,
-    paging::{MSize, PageTable, PageTableAttr, PhysAddr, VirtAddr},
+    paging::{KERNEL_DIRECT_START, PageTable},
     spin::{SpinGuard, SpinLock},
     x86,
 };
@@ -242,7 +242,8 @@ pub fn switch() {
                 .borrow()
                 .as_ref()
                 .unwrap()
-                .as_ref() as *const PageTable as usize,
+                .as_ref() as *const PageTable as usize
+                - KERNEL_DIRECT_START,
         );
 
         let current_ctx = &mut prev_task_guard.context as *mut TaskContext;
@@ -266,18 +267,8 @@ pub fn spawn(func: fn()) {
     let kstack = Pin::from(Box::new(AlignedStack([0u8; KERNEL_STACK_SIZE])));
     // spawn関数は、idleタスク実行中に呼び出されるため、current_task()はidleタスクを指している
     // spawn関数はunsafeであるべきじゃね?
-    let mut page_table =
+    let page_table =
         PageTable::duplicate_kernel(current_task().lock().page_table.borrow().as_ref().unwrap());
-    // KERNEL_STACKの先頭1ページを書き込み不可にする
-    page_table
-        .as_mut()
-        .create_mapping(
-            VirtAddr::new(kstack.as_ref().get_ref().0.as_ptr() as usize),
-            PhysAddr::new(kstack.as_ref().get_ref().0.as_ptr() as usize),
-            MSize::new(4096),
-            PageTableAttr::ReadKernel,
-        )
-        .unwrap();
     let task_lock = Arc::new(SpinLock::new(Task::new()));
 
     TASKS.lock().push(task_lock.clone());

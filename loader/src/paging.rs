@@ -1,6 +1,5 @@
 use core::fmt::Debug;
-use core::num;
-use core::{arch::asm, fmt, mem::MaybeUninit, pin::Pin};
+use core::{arch::asm, fmt, mem::MaybeUninit};
 
 #[repr(transparent)]
 #[derive(Clone, Copy)]
@@ -111,6 +110,8 @@ impl From<usize> for MSize {
     }
 }
 
+pub const KERNEL_DIRECT_START: usize = 0xffff888000000000;
+const KERNEL_DIRECT_SIZE: usize = 0x8000000000;
 const PAGE_SIZE: usize = 4096; // 4 KiB
 
 const PTE_ATTR_MASK: u64 = 0x7FFF_FFFF_FFFF_F000; // Mask for attributes
@@ -120,6 +121,7 @@ const PTE_ATTR_WRITABLE: u64 = 1 << 1; // Page is writable
 const PTE_ATTR_USER_ACCESSIBLE: u64 = 1 << 2; // Page is accessible by user mode
 const PTE_ATTR_WRITE_THROUGH: u64 = 1 << 3; // Write-through caching
 const PTE_ATTR_CACHE_DISABLED: u64 = 1 << 4; // Cache disabled
+const PTE_ATTR_HUGE_PAGE: u64 = 1 << 7; // Huge Page
 const PTE_ATTR_NOT_EXECUTABLE: u64 = 1 << 63; // Page is **not** executable
 
 #[repr(u64)]
@@ -131,6 +133,8 @@ pub enum PageTableAttr {
     ReadKernel = PTE_ATTR_PRESENT | PTE_ATTR_NOT_EXECUTABLE,
     ReadWriteExecuteKernel = PTE_ATTR_PRESENT | PTE_ATTR_WRITABLE,
     ReadWriteKernel = PTE_ATTR_PRESENT | PTE_ATTR_WRITABLE | PTE_ATTR_NOT_EXECUTABLE,
+    ReadWriteKernel1GiB =
+        PTE_ATTR_PRESENT | PTE_ATTR_WRITABLE | PTE_ATTR_NOT_EXECUTABLE | PTE_ATTR_HUGE_PAGE,
     ReadWriteKernelIO = PTE_ATTR_PRESENT
         | PTE_ATTR_WRITABLE
         | PTE_ATTR_WRITE_THROUGH
@@ -241,6 +245,7 @@ pub struct PageTable {
 }
 
 impl PageTable {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         unsafe { MaybeUninit::zeroed().assume_init() }
     }
@@ -259,6 +264,22 @@ impl PageTable {
             phys_start.as_usize() % PAGE_SIZE == 0,
             "Physical address must be page-aligned"
         );
+
+        if matches!(attr, PageTableAttr::ReadWriteKernel1GiB)
+            && virt_start.as_usize() % (1 << 30) == 0
+            && phys_start.as_usize() % (1 << 30) == 0
+            && num_pages % (1 << 18) == 0
+        {
+            let pml4_index = virt_start.pml4_index();
+            let pdpt_index = virt_start.pdpt_index();
+            let pml4 = &mut self.pml4;
+            let pdpt = pml4.entries[pml4_index].get_or_alloc_next_level_table()?;
+            for i in 0..(num_pages / (1 << 18)) {
+                let entry = &mut pdpt.entries[pdpt_index + i];
+                entry.set_entry(PhysAddr(phys_start.as_usize() + i * (1 << 30)), attr)?;
+            }
+            return Ok(());
+        }
 
         let mut node = &mut self.pml4;
         for level in (2..=4).rev() {
@@ -294,23 +315,10 @@ impl PageTable {
         let num_pages = size.as_usize().div_ceil(PAGE_SIZE); // Or panic if size is not page-aligned...?
         self.map(virt_start, phys_start, num_pages, attr)
     }
-
-    // 現時点ではカーネル空間のみ存在し、idleタスクのページテーブルを複製する
-    // そのため再帰的な複製は行わず、単純にPML4のエントリをコピーする
-    pub fn duplicate_kernel(&self) -> Pin<Box<PageTable>> {
-        let mut new_table = Box::pin(PageTable::new());
-        for (i, entry) in self.pml4.entries.iter().enumerate() {
-            if entry.is_present() {
-                let new_entry = &mut new_table.as_mut().pml4.entries[i];
-                *new_entry = *entry;
-            }
-        }
-        new_table
-    }
 }
 
 fn read_cr3() -> usize {
-    let mut addr: usize = 0;
+    let mut addr: usize;
     unsafe {
         asm!(
             "mov {}, cr3",
@@ -349,11 +357,19 @@ pub fn init_early_paging(kernel_start_phys: PhysAddr, kernel_start_virt: VirtAdd
     let mut page_table = unsafe { get_page_table_from_cr3() };
     page_table
         .create_mapping(
+            VirtAddr::new(KERNEL_DIRECT_START),
+            PhysAddr::new(0),
+            MSize::new(KERNEL_DIRECT_SIZE),
+            PageTableAttr::ReadWriteKernel1GiB,
+        )
+        .expect("Failed to create direct mapping.");
+    page_table
+        .create_mapping(
             kernel_start_virt,
             kernel_start_phys,
             size.align_up_to_page(),
             PageTableAttr::ReadWriteExecuteKernel,
         )
-        .expect("failed paging");
+        .expect("Failed to create kernel mapping.");
     write_cr3(&mut page_table.pml4 as *mut _ as usize);
 }

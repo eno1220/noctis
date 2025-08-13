@@ -11,7 +11,7 @@ use std::{
     os::uefi::{self, ffi::OsStrExt},
 };
 
-use crate::paging::{MSize, PhysAddr, VirtAddr};
+use crate::paging::{KERNEL_DIRECT_START, MSize, PhysAddr, VirtAddr};
 
 const KERNEL_STACK_SIZE: u64 = 0x4000;
 const KERNEL_HEAP_SIZE: u64 = 0x1000000;
@@ -235,8 +235,9 @@ fn main() {
     kernel_file_size = read_kernel_file(kernel_file, kernel_file_size + 1024, &mut kernel_ref);
     let kernel_entry = load_to_memory(kernel_ref, kernel_file_size);
 
-    let stack_base = allocate_memory(KERNEL_STACK_SIZE) + KERNEL_STACK_SIZE;
-    let heap_base = allocate_memory(KERNEL_HEAP_SIZE);
+    let stack_base =
+        allocate_memory(KERNEL_STACK_SIZE) + KERNEL_STACK_SIZE + (KERNEL_DIRECT_START as u64);
+    let heap_base = allocate_memory(KERNEL_HEAP_SIZE) + (KERNEL_DIRECT_START as u64);
     let heap_size: u64 = KERNEL_HEAP_SIZE;
 
     let memory_map = memory::MemoryMap::new();
