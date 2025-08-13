@@ -1,6 +1,7 @@
 use crate::{
     info,
-    paging::{KERNEL_DIRECT_START, PageTable},
+    memlayout::{VirtAddr, virt_to_phys},
+    paging::PageTable,
     spin::{SpinGuard, SpinLock},
     x86,
 };
@@ -236,15 +237,14 @@ pub fn switch() {
         prev_task_guard.running = false;
         next_task_guard.running = true;
 
-        x86::write_cr3(
+        x86::write_cr3(virt_to_phys(VirtAddr::new(
             &*next_task_guard
                 .page_table
                 .borrow()
                 .as_ref()
                 .unwrap()
-                .as_ref() as *const PageTable as usize
-                - KERNEL_DIRECT_START,
-        );
+                .as_ref() as *const PageTable as usize,
+        )));
 
         let current_ctx = &mut prev_task_guard.context as *mut TaskContext;
         let next_ctx = &mut next_task_guard.context as *mut TaskContext;

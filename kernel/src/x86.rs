@@ -1,5 +1,7 @@
 use core::arch::asm;
 
+use crate::memlayout::{Address, PhysAddr};
+
 pub fn write_io(port: u16, value: u8) {
     unsafe {
         asm!(
@@ -35,13 +37,19 @@ pub fn enable_interrupts() {
     }
 }
 
-pub fn write_cr3(value: usize) {
+unsafe fn write_cr3_inner(value: usize) {
     unsafe {
         asm!(
             "mov cr3, {}",
             in(reg) value,
             options(nostack),
         );
+    }
+}
+
+pub fn write_cr3(phys: PhysAddr) {
+    unsafe {
+        write_cr3_inner(phys.to_usize());
     }
 }
 

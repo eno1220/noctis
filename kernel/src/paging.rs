@@ -1,119 +1,18 @@
-use crate::{info, symbol_offsets, x86::write_cr3};
+use crate::{
+    info,
+    memlayout::{
+        APIC_IO_SIZE, APIC_IO_START_ADDR, Address, LINER_MAPPING_BASE_VADDR,
+        LINER_MAPPING_SIZE, MSize, PhysAddr, VirtAddr, phys_to_virt, virt_to_phys,
+    },
+    symbol_offsets,
+    x86::write_cr3,
+	println
+};
 use alloc::boxed::Box;
 use core::fmt::Debug;
 use core::{fmt, mem::MaybeUninit, pin::Pin};
 
-#[repr(transparent)]
-#[derive(Clone, Copy)]
-pub struct PhysAddr(usize);
-
-impl PhysAddr {
-    pub fn new(addr: usize) -> Self {
-        PhysAddr(addr)
-    }
-    pub fn as_usize(&self) -> usize {
-        self.0
-    }
-    pub fn as_u64(&self) -> u64 {
-        self.0 as u64
-    }
-}
-
-impl fmt::Debug for PhysAddr {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "PhysAddr({:#x})", self.0)
-    }
-}
-
-impl From<usize> for PhysAddr {
-    fn from(addr: usize) -> Self {
-        PhysAddr::new(addr)
-    }
-}
-
-#[repr(transparent)]
-#[derive(Clone, Copy)]
-pub struct VirtAddr(usize);
-
-impl VirtAddr {
-    pub fn new(addr: usize) -> Self {
-        VirtAddr(Self::canonicalize(addr as u64) as usize)
-    }
-    fn canonicalize(addr: u64) -> u64 {
-        if addr & (1 << 47) != 0 {
-            addr | 0xFFFF_0000_0000_0000
-        } else {
-            addr & 0x0000_FFFF_FFFF_FFFF
-        }
-    }
-    pub fn as_usize(&self) -> usize {
-        self.0
-    }
-    #[allow(dead_code)]
-    pub fn as_u64(&self) -> u64 {
-        self.0 as u64
-    }
-
-    pub fn nth_level_table_index(&self, level: usize) -> usize {
-        (self.0 >> (12 + ((level - 1) * 9))) & 0x1FF
-    }
-    #[allow(dead_code)]
-    pub fn pml4_index(&self) -> usize {
-        self.nth_level_table_index(4)
-    }
-    #[allow(dead_code)]
-    pub fn pdpt_index(&self) -> usize {
-        self.nth_level_table_index(3)
-    }
-    #[allow(dead_code)]
-    pub fn pd_index(&self) -> usize {
-        self.nth_level_table_index(2)
-    }
-    pub fn pt_index(&self) -> usize {
-        self.nth_level_table_index(1)
-    }
-
-    pub fn add(&self, offset: usize) -> Self {
-        VirtAddr::new(self.0.wrapping_add(offset))
-    }
-}
-
-impl From<usize> for VirtAddr {
-    fn from(addr: usize) -> Self {
-        VirtAddr::new(addr)
-    }
-}
-
-impl fmt::Debug for VirtAddr {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "VirtAddr({:#x})", self.0)
-    }
-}
-
-#[repr(transparent)]
-#[derive(Clone, Copy, Debug)]
-pub struct MSize(usize);
-
-impl MSize {
-    pub fn new(size: usize) -> Self {
-        MSize(size)
-    }
-    pub fn as_usize(&self) -> usize {
-        self.0
-    }
-}
-
-impl From<usize> for MSize {
-    fn from(size: usize) -> Self {
-        MSize::new(size)
-    }
-}
-
-// TODO: メモリレイアウト由来のアドレスを別ファイルへ移動する
-pub const KERNEL_VADDR_BASE: usize = 0xFFFFFFFF80000000;
-pub const KERNEL_DIRECT_START: usize = 0xffff888000000000;
-const KERNEL_DIRECT_SIZE: usize = 0x8000000000;
-const PAGE_SIZE: usize = 4096; // 4 KiB
+const PAGE_SIZE: MSize = MSize::new(4096);
 
 const PTE_ATTR_MASK: u64 = 0x7FFF_FFFF_FFFF_F000; // Mask for attributes
 const PTE_ATTR_PRESENT: u64 = 1 << 0; // Page is present
@@ -195,10 +94,10 @@ impl PageTableEntry {
         PhysAddr::new((self.value & PTE_ATTR_MASK) as usize)
     }
     fn set_entry(&mut self, paddr: PhysAddr, attr: PageTableAttr) -> Result<(), &'static str> {
-        if paddr.as_usize() & !PTE_ATTR_MASK as usize != 0 {
+        if paddr.to_usize() & !PTE_ATTR_MASK as usize != 0 {
             return Err("Physical address must be page-aligned");
         }
-        self.value = paddr.as_u64() | (attr as u64);
+        self.value = (paddr.to_usize() as u64) | (attr as u64);
         Ok(())
     }
 
@@ -206,9 +105,7 @@ impl PageTableEntry {
         if !self.is_present() {
             None
         } else {
-            Some(unsafe {
-                &mut *((self.paddr().as_usize() + KERNEL_DIRECT_START) as *mut PageTableNode)
-            })
+            Some(unsafe { &mut *(phys_to_virt(self.paddr()).to_ptr_mut() as *mut PageTableNode) })
         }
     }
     fn alloc_next_level_table(&mut self) -> Result<&mut Self, &'static str> {
@@ -217,14 +114,9 @@ impl PageTableEntry {
         } else {
             // TODO: 物理メモリを取得するアロケータを実装し、そのアロケータからメモリを確保する
             let next: Box<PageTableNode> = Box::new(unsafe { MaybeUninit::zeroed().assume_init() });
-            // TODO: virt_to_phys関数を実装する
-            // TODO: u64とusizeをまとめる
-            let phys_addr = Box::into_raw(next) as usize - KERNEL_DIRECT_START;
-            debug_assert!(
-                phys_addr <= 0x0000_FFFFFFFFFFFF,
-                "Physical address exceeds valid range"
-            );
-            self.value = phys_addr as u64 | PageTableAttr::ReadWriteExecuteKernel as u64;
+            let phys_addr = virt_to_phys(VirtAddr::from_ptr(Box::into_raw(next) as *const u8));
+            self.value =
+                (phys_addr.to_usize() as u64) | PageTableAttr::ReadWriteExecuteKernel as u64;
             Ok(self)
         }
     }
@@ -269,17 +161,17 @@ impl PageTable {
         attr: PageTableAttr,
     ) -> Result<(), &'static str> {
         assert!(
-            virt_start.as_usize() % PAGE_SIZE == 0,
+            virt_start.to_usize() % PAGE_SIZE.to_usize() == 0,
             "Virtual address must be page-aligned"
         );
         assert!(
-            phys_start.as_usize() % PAGE_SIZE == 0,
+            phys_start.to_usize() % PAGE_SIZE.to_usize() == 0,
             "Physical address must be page-aligned"
         );
 
         if matches!(attr, PageTableAttr::ReadWriteKernel1GiB)
-            && virt_start.as_usize() % (1 << 30) == 0
-            && phys_start.as_usize() % (1 << 30) == 0
+            && virt_start.to_usize() % (1 << 30) == 0
+            && phys_start.to_usize() % (1 << 30) == 0
             && num_pages % (1 << 18) == 0
         {
             let pml4_index = virt_start.pml4_index();
@@ -288,7 +180,7 @@ impl PageTable {
             let pdpt = pml4.entries[pml4_index].get_or_alloc_next_level_table()?;
             for i in 0..(num_pages / (1 << 18)) {
                 let entry = &mut pdpt.entries[pdpt_index + i];
-                entry.set_entry(PhysAddr(phys_start.as_usize() + i * (1 << 30)), attr)?;
+                entry.set_entry(PhysAddr::new(phys_start.to_usize() + i * (1 << 30)), attr)?;
             }
             return Ok(());
         }
@@ -312,8 +204,8 @@ impl PageTable {
                 }
             }
             node.entries[index].set_entry(paddr, attr)?;
-            vaddr = vaddr.add(PAGE_SIZE);
-            paddr = PhysAddr::new(paddr.as_usize() + PAGE_SIZE);
+            vaddr += PAGE_SIZE;
+            paddr += PAGE_SIZE;
         }
         Ok(())
     }
@@ -324,7 +216,8 @@ impl PageTable {
         size: MSize,
         attr: PageTableAttr,
     ) -> Result<(), &'static str> {
-        let num_pages = size.as_usize().div_ceil(PAGE_SIZE); // Or panic if size is not page-aligned...?
+        let num_pages = size.to_usize().div_ceil(PAGE_SIZE.to_usize()); // Or panic if size is not page-aligned...?
+		println!("{:x?}", phys_start);
         self.map(virt_start, phys_start, num_pages, attr)
     }
 
@@ -351,48 +244,50 @@ pub fn init_paging() -> Pin<Box<PageTable>> {
     page_table
         .as_mut()
         .create_mapping(
-            VirtAddr::new(KERNEL_DIRECT_START),
+            LINER_MAPPING_BASE_VADDR,
             PhysAddr::new(0),
-            MSize::new(KERNEL_DIRECT_SIZE),
+            LINER_MAPPING_SIZE,
             PageTableAttr::ReadWriteKernel1GiB,
         )
         .expect("Failed to create direct mapping");
     page_table
         .as_mut()
         .create_mapping(
-            VirtAddr::new(symbol_offsets::__text()),
-            PhysAddr::new(symbol_offsets::__text() - KERNEL_VADDR_BASE),
-            MSize::new(symbol_offsets::__text_end() - symbol_offsets::__text()),
+            symbol_offsets::__text(),
+            virt_to_phys(symbol_offsets::__text()),
+            MSize::from_address(symbol_offsets::__text(), symbol_offsets::__text_end()),
             PageTableAttr::ReadExecuteKernel,
         )
         .expect("Failed to .text area mapping");
     page_table
         .as_mut()
         .create_mapping(
-            VirtAddr::new(symbol_offsets::__rodata()),
-            PhysAddr::new(symbol_offsets::__rodata() - KERNEL_VADDR_BASE),
-            MSize::new(symbol_offsets::__rodata_end() - symbol_offsets::__rodata()),
+            symbol_offsets::__rodata(),
+            virt_to_phys(symbol_offsets::__rodata()),
+            MSize::from_address(symbol_offsets::__rodata(), symbol_offsets::__rodata_end()),
             PageTableAttr::ReadKernel,
         )
         .expect("Failed to .rodata area mapping");
     page_table
         .as_mut()
         .create_mapping(
-            VirtAddr::new(symbol_offsets::__data()),
-            PhysAddr::new(symbol_offsets::__data() - KERNEL_VADDR_BASE),
-            MSize::new(symbol_offsets::__bss_end() - symbol_offsets::__data()),
+            symbol_offsets::__data(),
+            virt_to_phys(symbol_offsets::__data()),
+            MSize::from_address(symbol_offsets::__data(), symbol_offsets::__bss_end()),
             PageTableAttr::ReadWriteKernel,
         )
         .expect("Failed to .data .bss area mapping");
     page_table
         .as_mut()
         .create_mapping(
-            VirtAddr::new(0xFEE0_0000),
-            PhysAddr::new(0xFEE0_0000),
-            MSize::new(0x1000), // 4 KiB for I/O APIC
+            VirtAddr::new(APIC_IO_START_ADDR),
+            PhysAddr::new(APIC_IO_START_ADDR),
+            APIC_IO_SIZE,
             PageTableAttr::ReadWriteKernelIO,
         )
         .expect("Failed to create kernel I/O mapping");
-    write_cr3(&mut page_table.pml4 as *mut _ as usize - KERNEL_DIRECT_START);
+    write_cr3(virt_to_phys(VirtAddr::new(
+        &mut page_table.pml4 as *mut _ as usize,
+    )));
     page_table
 }

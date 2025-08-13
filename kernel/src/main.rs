@@ -12,6 +12,7 @@ mod allocator;
 mod gdt;
 mod idt;
 mod log;
+mod memlayout;
 mod paging;
 mod qemu;
 mod spin;
@@ -109,11 +110,11 @@ macro_rules! symbol_offsets(
     ($($name:ident), *) => {
         $(
             #[inline]
-            pub fn $name() -> usize {
+            pub fn $name() -> crate::memlayout::VirtAddr {
                 unsafe extern "C" {
                     static $name: u8;
                 }
-                unsafe { &$name as *const u8 as usize }
+                unsafe { crate::memlayout::VirtAddr::new(&$name as *const u8 as usize) }
             }
         )*
     };
