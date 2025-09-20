@@ -1,12 +1,11 @@
 use crate::{
     info,
     memlayout::{
-        APIC_IO_SIZE, APIC_IO_START_ADDR, Address, LINER_MAPPING_BASE_VADDR,
-        LINER_MAPPING_SIZE, MSize, PhysAddr, VirtAddr, phys_to_virt, virt_to_phys,
+        APIC_IO_SIZE, APIC_IO_START_ADDR, Address, LINER_MAPPING_BASE_VADDR, LINER_MAPPING_SIZE,
+        MSize, PhysAddr, VirtAddr, phys_to_virt, virt_to_phys,
     },
-    symbol_offsets,
+    println, symbol_offsets,
     x86::write_cr3,
-	println
 };
 use alloc::boxed::Box;
 use core::fmt::Debug;
@@ -217,7 +216,7 @@ impl PageTable {
         attr: PageTableAttr,
     ) -> Result<(), &'static str> {
         let num_pages = size.to_usize().div_ceil(PAGE_SIZE.to_usize()); // Or panic if size is not page-aligned...?
-		println!("{:x?}", phys_start);
+        println!("{:x?}", phys_start);
         self.map(virt_start, phys_start, num_pages, attr)
     }
 

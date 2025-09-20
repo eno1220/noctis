@@ -138,7 +138,7 @@ impl MSize {
         Self(end_addr.to_usize() - start_addr.to_usize())
     }
 
-	#[allow(dead_code)]
+    #[allow(dead_code)]
     pub fn page_align_up(&self) -> Self {
         Self(self.0 + 0xFFF & !0xFFF)
     }
@@ -171,13 +171,16 @@ pub fn virt_to_phys(virt: VirtAddr) -> PhysAddr {
         virt >= LINER_MAPPING_BASE_VADDR,
         "virtual address is out of range"
     );
-	if virt >= LINER_MAPPING_BASE_VADDR && virt <= LINER_MAPPING_BASE_VADDR + LINER_MAPPING_SIZE {
-		PhysAddr::new(virt.to_usize() - LINER_MAPPING_BASE_VADDR.to_usize())
-	} else if virt >= KERNEL_CODE_BASE_VADDR {
-		PhysAddr::new(virt.to_usize() - KERNEL_CODE_BASE_VADDR.to_usize())
-	} else {
-		panic!("virt_to_phys: unsupported address region: {:#x}", virt.to_usize())
-	}
+    if virt >= LINER_MAPPING_BASE_VADDR && virt <= LINER_MAPPING_BASE_VADDR + LINER_MAPPING_SIZE {
+        PhysAddr::new(virt.to_usize() - LINER_MAPPING_BASE_VADDR.to_usize())
+    } else if virt >= KERNEL_CODE_BASE_VADDR {
+        PhysAddr::new(virt.to_usize() - KERNEL_CODE_BASE_VADDR.to_usize())
+    } else {
+        panic!(
+            "virt_to_phys: unsupported address region: {:#x}",
+            virt.to_usize()
+        )
+    }
 }
 
 pub const APIC_IO_START_ADDR: usize = 0xFEE0_0000;

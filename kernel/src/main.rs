@@ -13,6 +13,7 @@ mod gdt;
 mod idt;
 mod log;
 mod memlayout;
+mod memory;
 mod paging;
 mod qemu;
 mod spin;
@@ -29,18 +30,21 @@ use core::arch::asm;
 #[allow(unused_imports)]
 use core::panic::PanicInfo;
 
+// FIXME: modify to pass BOOT_INFO as a unified structure to the kernel
 #[unsafe(no_mangle)]
-pub extern "C" fn kernel_entry(stack_base: u64, heap_base: u64, heap_size: u64) -> ! {
+pub extern "C" fn kernel_entry(stack_base: u64, heap_base: u64, heap_size: u64,  memory_region: &memory::MemoryRegionArray) -> ! {
     loop {
         unsafe {
             asm!(
                 "mov rsp, {0}",
                 "mov rdi, {1}",
                 "mov rsi, {2}",
+				"mov rdx, {3}",
                 "call kernel_main",
                 in(reg) stack_base,
                 in(reg) heap_base,
                 in(reg) heap_size,
+				in(reg) memory_region,
             );
         }
     }
@@ -61,7 +65,7 @@ fn task_b() {
 }
 
 #[unsafe(no_mangle)]
-extern "C" fn kernel_main(heap_base: u64, heap_size: u64) -> ! {
+extern "C" fn kernel_main(heap_base: u64, heap_size: u64, _: &memory::MemoryRegionArray) -> ! {
     uart::Uart::default().init();
 
     print!(

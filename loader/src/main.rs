@@ -11,7 +11,10 @@ use std::{
     os::uefi::{self, ffi::OsStrExt},
 };
 
-use crate::paging::{KERNEL_DIRECT_START, MSize, PhysAddr, VirtAddr};
+use crate::{
+    memory::{MemoryRegion, MemoryRegionArray, PAGE_SIZE},
+    paging::{MSize, PhysAddr, VirtAddr, KERNEL_DIRECT_START},
+};
 
 const KERNEL_STACK_SIZE: u64 = 0x4000;
 const KERNEL_HEAP_SIZE: u64 = 0x1000000;
@@ -219,8 +222,8 @@ fn main() {
 
     println!("Hello, world!");
 
-    /*let memory_map = memory::MemoryMap::new();
-    for desc in memory_map.iter() {
+    let memory_map = memory::MemoryMap::new();
+    /*for desc in memory_map.iter() {
         println!(
             "Physical Start: {:#018x}, Number of Pages: {:#07x}, Type: {:?}",
             desc.physical_start, desc.number_of_pages, desc.r#type
@@ -240,6 +243,28 @@ fn main() {
     let heap_base = allocate_memory(KERNEL_HEAP_SIZE) + (KERNEL_DIRECT_START as u64);
     let heap_size: u64 = KERNEL_HEAP_SIZE;
 
+	// FIXME:
+	// While strictly speaking one should use the memory map obtained immediately before calling the kernel,
+	// this implementation avoids changing the memory map revision by using heap memory within the processing.
+    let mut memory_regions = MemoryRegionArray::new();
+    for desc in memory_map.iter() {
+        let region = match desc.r#type {
+			// While BOOT_SERVICES_DATA could also be used here,
+			// it includes page tables and thus isn't employed for this purpose.
+            efi::BOOT_SERVICES_CODE | efi::CONVENTIONAL_MEMORY => MemoryRegion::new(
+                desc.physical_start as usize,
+                desc.number_of_pages as usize * PAGE_SIZE,
+                memory::MemoryRegionType::Usable,
+            ),
+            _ => MemoryRegion::new(
+                desc.physical_start as usize,
+                desc.number_of_pages as usize * PAGE_SIZE,
+                memory::MemoryRegionType::Reserved,
+            ),
+        };
+        memory_regions.push(region);
+    }
+
     let memory_map = memory::MemoryMap::new();
 
     status_to_result(unsafe {
@@ -248,9 +273,9 @@ fn main() {
     .expect("Failed to exit boot services");
 
     unsafe {
-        let kernel_entry: extern "sysv64" fn(stack_base: u64, heap_base: u64, heap_size: u64) -> ! =
+        let kernel_entry: extern "sysv64" fn(stack_base: u64, heap_base: u64, heap_size: u64, memory_region: &MemoryRegionArray) -> ! =
             core::mem::transmute(kernel_entry);
-        kernel_entry(stack_base as u64, heap_base as u64, heap_size as u64);
+        kernel_entry(stack_base as u64, heap_base as u64, heap_size as u64, &memory_regions);
     }
 
     #[allow(unreachable_code)]

@@ -2,6 +2,71 @@ use super::status_to_result;
 use r_efi::efi::{self, MemoryDescriptor};
 use std::os::uefi;
 
+#[derive(Clone, Copy, Debug)]
+pub enum MemoryRegionType {
+    Reserved,
+    Usable,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct MemoryRegion {
+    base: usize,
+    len: usize,
+    typ: MemoryRegionType,
+}
+
+#[allow(dead_code)]
+impl MemoryRegion {
+    pub const fn new(base: usize, len: usize, typ: MemoryRegionType) -> Self {
+        MemoryRegion { base, len, typ }
+    }
+
+    pub const fn zeroed() -> Self {
+        MemoryRegion {
+            base: 0,
+            len: 0,
+            typ: MemoryRegionType::Reserved,
+        }
+    }
+
+    pub fn base(&self) -> usize {
+        self.base
+    }
+
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn typ(&self) -> MemoryRegionType {
+        self.typ
+    }
+}
+
+pub const PAGE_SIZE: usize = 4096;
+const MAX_MEMORY_REGION_LEN: usize = 128;
+
+pub struct MemoryRegionArray {
+    regions: [MemoryRegion; MAX_MEMORY_REGION_LEN],
+    count: usize,
+}
+
+impl MemoryRegionArray {
+    pub const fn new() -> Self {
+        Self {
+            regions: [MemoryRegion::zeroed(); MAX_MEMORY_REGION_LEN],
+            count: 0,
+        }
+    }
+
+    pub fn push(&mut self, region: MemoryRegion) {
+        // FIXME: Set the return value to result,
+        // and return an Error if the array is full.
+        assert!(self.count < MAX_MEMORY_REGION_LEN);
+        self.regions[self.count] = region;
+        self.count += 1;
+    }
+}
+
 #[allow(dead_code)]
 pub struct MemoryMap {
     map: Vec<u8>,
